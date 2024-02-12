@@ -1,10 +1,10 @@
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // Get the OUT_DIR environment variable which is the build location for this component.
-    let out_path = Path::new(&env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     // Define the source directory for the bibe CSV files
     let src_dir = Path::new("src/bibles");
 
