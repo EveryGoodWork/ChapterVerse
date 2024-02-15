@@ -23,9 +23,22 @@ fn main() {
     let files = fs::read_dir(&bibles_directory).expect("Failed to read directory");
 
     for file in files {
-        let entry = file.expect("Failed to read entry");        
-        if entry.path().is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("csv") {            
-            start_bible_import(&entry.path().to_string_lossy());
+        let entry = file.expect("Failed to read entry");
+        if entry.path().is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("csv") {
+            match start_bible_import(&entry.path().to_string_lossy()) {
+                Ok(imported_bible) => {
+                    PrintCommand::System.print_message("Bible Imported", &entry.path().display().to_string());
+                    PrintCommand::Info.print_message("Number of verses imported", &imported_bible.len().to_string());
+                    PrintCommand::Info.print_message("2 Timothy 3:16", &imported_bible.get_scripture("55:3:16").0.then(|| imported_bible.get_scripture("55:3:16").1).unwrap_or_else(|| "Verse not found".to_string()));
+
+
+
+                },
+                Err(err) => {
+                    println!("Error running import: {}", err);
+                }
+            }
         }
     }
+    
 }

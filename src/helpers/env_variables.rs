@@ -69,8 +69,6 @@ pub(crate) fn get_env_variable(env_var_key: &str, default_value: &str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::tempdir;
 
     #[test]
     fn ensure_get_env_variable_creates_and_updates_env_file() {

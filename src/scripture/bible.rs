@@ -1,30 +1,38 @@
-// use std::collections::HashMap;
+use std::collections::HashMap;
 
-// #[derive(Debug, Clone, PartialEq)]
-// struct Bible {
-//     id: String,
-//     book_id: u8,
-//     chapter: u8,
-//     verse: u8,
-//     text: String,
-// }
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct Verse {
+    id: String,
+    book_id: u8,
+    chapter: u8,
+    verse: u8,
+    scripture: String,
+}
 
-// struct ScriptureIndex {
-//     index: HashMap<String, Bible>,
-// }
+pub struct Bible {
+    index: HashMap<String, Verse>,
+}
+impl Bible {
+    pub fn new() -> Self {
+        Bible {
+            index: HashMap::new(),
+        }
+    }
 
-// impl ScriptureIndex {
-//     fn new() -> Self {
-//         ScriptureIndex {
-//             index: HashMap::new(),
-//         }
-//     }
-
-//     fn insert(&mut self, scripture: Bible) {
-//         self.index.insert(scripture.id.clone(), scripture);
-//     }
-
-//     fn get(&self, id: &str) -> Option<&Bible> {
-//         self.index.get(id)
-//     }
-// }
+    pub fn insert(&mut self, scripture: Verse) {
+        self.index.insert(scripture.id.clone(), scripture);
+    }    
+    // pub fn get(&self, id: &str) -> Option<&Verse> {
+    //     self.index.get(id)
+    // }
+    pub fn get_scripture(&self, id: &str) -> (bool, String) {
+        if let Some(verse) = self.index.get(id) {
+            (true, verse.scripture.clone())
+        } else {
+            (false, String::new())
+        }
+    }     
+    pub fn len(&self) -> usize {
+        self.index.len()
+    }
+}
