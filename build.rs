@@ -6,16 +6,22 @@ fn main() {
     // Get the OUT_DIR environment variable which is the build location for this component.
     let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     // Define the source directory for the bibe CSV files
-    let src_dir = Path::new("src/bibles");
+    let src_dir = Path::new("bibles");
 
     // Navigate two levels up from OUT_DIR to target the root of the build directory
-    let target_dir = out_path.parent().and_then(Path::parent).and_then(Path::parent)
+    let target_dir = out_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
         .expect("Failed to resolve two levels up from OUT_DIR");
 
     // Specify the subdirectory where the CSV files should be placed
     let dest_dir = target_dir.join("bibles");
     if let Err(e) = fs::create_dir_all(&dest_dir) {
-        println!("cargo:warning=Failed to create destination directory: {:?}", e);
+        println!(
+            "cargo:warning=Failed to create destination directory: {:?}",
+            e
+        );
     } else {
         println!("cargo:warning=CSV files will be copied to: {:?}", dest_dir);
     }
