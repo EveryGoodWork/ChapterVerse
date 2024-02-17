@@ -10,6 +10,7 @@ use std::io::stdout;
 pub enum PrintCommand {
     System,
     Info,
+    Details,
     UnitTest,
     Issue,
     Error,
@@ -21,6 +22,7 @@ impl PrintCommand {
         match self {
             Self::System => (Color::Green, Color::Cyan), // Example: Yellow for title, Cyan for statement
             Self::Info => (Color::Grey, Color::White), // Example: Yellow for title, Cyan for statement
+            Self::Details => (Color::Grey, Color::White), // Example: Yellow for title, Cyan for statement
             Self::UnitTest => (Color::White, Color::Magenta), // Adjust colors as needed
             Self::Issue => (Color::Yellow, Color::White),
             Self::Error => (Color::Red, Color::DarkRed), // Red for title, DarkRed for statement

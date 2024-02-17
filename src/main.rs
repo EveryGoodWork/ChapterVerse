@@ -1,11 +1,9 @@
-use helpers::import_bibles::start_bible_import;
-
-use crate::helpers::env_variables::get_env_variable;
-use crate::helpers::print_color::PrintCommand;
+use bible::csv_import::bible_import;
+use helpers::env_variables::get_env_variable;
+use helpers::print_color::PrintCommand;
 use std::{env, fs};
 
 mod helpers;
-mod scripture;
 
 fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -19,26 +17,35 @@ fn main() {
         .join(import_bibles_path);
 
     PrintCommand::System.print_message("Bibles Directory", &bibles_directory.to_string_lossy());
-    
+
     let files = fs::read_dir(&bibles_directory).expect("Failed to read directory");
 
     for file in files {
         let entry = file.expect("Failed to read entry");
-        if entry.path().is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("csv") {
-            match start_bible_import(&entry.path().to_string_lossy()) {
+        if entry.path().is_file()
+            && entry.path().extension().and_then(|s| s.to_str()) == Some("csv")
+        {
+            match bible_import(&entry.path().to_string_lossy()) {
                 Ok(imported_bible) => {
-                    PrintCommand::System.print_message("Bible Imported", &entry.path().display().to_string());
-                    PrintCommand::Info.print_message("Number of verses imported", &imported_bible.len().to_string());
-                    PrintCommand::Info.print_message("2 Timothy 3:16", &imported_bible.get_scripture("55:3:16").0.then(|| imported_bible.get_scripture("55:3:16").1).unwrap_or_else(|| "Verse not found".to_string()));
-
-
-
-                },
+                    PrintCommand::System
+                        .print_message("Bible Imported", &entry.path().display().to_string());
+                    PrintCommand::Info.print_message(
+                        "Number of verses imported",
+                        &imported_bible.len().to_string(),
+                    );
+                    PrintCommand::Info.print_message(
+                        "2 Timothy 3:16",
+                        &imported_bible
+                            .get_scripture("55:3:16")
+                            .0
+                            .then(|| imported_bible.get_scripture("55:3:16").1)
+                            .unwrap_or_else(|| "Verse not found".to_string()),
+                    );
+                }
                 Err(err) => {
                     println!("Error running import: {}", err);
                 }
             }
         }
     }
-    
 }
