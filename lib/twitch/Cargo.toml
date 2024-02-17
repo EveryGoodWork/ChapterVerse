@@ -1,0 +1,7 @@
+[package]
+name = "twitch"
+version = "0.1.0"
+edition = "2021"
+
+# Dependencies specific to the twitch library can be added here
+[dependencies]

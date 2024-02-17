@@ -21,7 +21,7 @@ impl Bible {
 
     pub fn insert(&mut self, scripture: Verse) {
         self.index.insert(scripture.id.clone(), scripture);
-    }    
+    }
     // pub fn get(&self, id: &str) -> Option<&Verse> {
     //     self.index.get(id)
     // }
@@ -31,7 +31,7 @@ impl Bible {
         } else {
             (false, String::new())
         }
-    }     
+    }
     pub fn len(&self) -> usize {
         self.index.len()
     }
