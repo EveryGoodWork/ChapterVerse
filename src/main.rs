@@ -1,14 +1,12 @@
 use bible::csv_import::bible_import;
 use helpers::env_variables::get_env_variable;
-//use helpers::logging::PrintCommand::info;
 use helpers::logging::{debug, info, trace, warn, error, setup_logger};
 use std::{env, fs};
-//use log::{debug, error, info, trace, warn};
 
 mod helpers;
 
 fn main() {
-    setup_logger();
+    setup_logger().unwrap();
     info("ChapterVerse Jesus is Lord!");
     debug(&format!("Version {}", env!("CARGO_PKG_VERSION")));
     debug("What is the Gospel? Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
