@@ -2,11 +2,13 @@ use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
+use helpers::logging::setup_logger;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use std::{env, fs, io};
+use log::{debug, info, warn, error};
 
 mod helpers;
 
@@ -75,10 +77,17 @@ fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
 }
 
 fn main() {
-    setup_logger().unwrap();
-    info("ChapterVerse Jesus is Lord!");
-    debug(&format!("Version {}", env!("CARGO_PKG_VERSION")));
-    debug("What is the Gospel? Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
+    let setup_logger_result = setup_logger();
+    match setup_logger_result {
+        Ok(_) => (),
+        Err(err) => {
+            println!("Error: {}", err);
+            error!("Error: {}", err);
+        }
+    }
+    println!("ChapterVerse Jesus is Lord!");
+    println!("Version {}", env!("CARGO_PKG_VERSION"));
+    println!("What is the Gospel? Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
 
     //Temp commandline to confirm lookup of scripture is working
     let mut bible_name = String::new();
