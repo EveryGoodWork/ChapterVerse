@@ -16,9 +16,13 @@ members = [
 bible = { path = "lib/bible" }
 twitch = { path = "lib/twitch" }
 async-trait = "^0.1.77"
+colored = { version = "2.1.0", features = ["no-color"] }
 crossterm = "^0.27.0"
 
 dotenv = "^0.15.0"
+fern = "0.6.2"
+humantime = "2.1.0"
+log = "0.4.20"
 reqwest = { version = "^0.11.24", features = ["json"] }
 strum = "^0.26.1"
 strum_macros = "^0.26.1"
