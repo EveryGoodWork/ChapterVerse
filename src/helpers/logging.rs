@@ -1,7 +1,22 @@
+use std::env;
 use log::{debug, info, trace, warn, error};
 use std::time::SystemTime;
 
-pub fn setup_logger() -> Result<(), fern::InitError> {
+pub fn setup_logger() -> Result<String, fern::InitError> {
+    let verbose_flag = env::args().any(|arg| arg == "-v");
+    let very_verbose_flag = env::args().any(|arg| arg == "-vv");
+    let level = if verbose_flag {
+        log::LevelFilter::Info
+    } else if very_verbose_flag {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Warn
+    };
+    let log_path = format!(
+        "logs/log-{}.log", humantime::format_rfc3339_seconds(
+            SystemTime::now()
+            ),
+    );
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -11,10 +26,12 @@ pub fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Warn)
-        .chain(fern::log_file("logs/log.log")?)
+        .level(level)
+        .chain(
+            fern::log_file(&log_path)?
+            )
         .apply()?;
-    Ok(())
+    Ok(log_path)
 }
 
 #[cfg(test)]
@@ -22,17 +39,11 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::{self, Read};
-    use std::path::Path;
     use log::info;
 
     #[test]
     fn test_logging() -> io::Result<()> {
-        // Remove the log file if it exists
-        // This might delete logs one intends to keep
-        let log_path = Path::new("logs/log.log");
-        std::fs::remove_file(log_path)?;
-
-        setup_logger().expect("Failed to initialize logger");
+        let log_path = setup_logger().expect("Failed to initialize logger");
 
         debug!("debug");
         info!("info");
