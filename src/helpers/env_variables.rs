@@ -35,7 +35,7 @@ pub(crate) fn get_env_variable(env_var_key: &str, default_value: &str) -> String
 
     // Retrieve the value of the environment variable
     match env::var(env_var_key) {
-        Ok(key_value) => return key_value,
+        Ok(key_value) => key_value,
         Err(_) => {
             PrintCommand::Issue.print_message(
                 &format!(
@@ -45,7 +45,7 @@ pub(crate) fn get_env_variable(env_var_key: &str, default_value: &str) -> String
                 default_value,
             );
 
-            match OpenOptions::new().write(true).append(true).open(".env") {
+            match OpenOptions::new().append(true).open(".env") {
                 Ok(mut file) => {
                     let contents = fs::read_to_string(env_file_path).unwrap_or_default();
                     let newline = if !contents.is_empty() && !contents.ends_with('\n') {
@@ -61,7 +61,7 @@ pub(crate) fn get_env_variable(env_var_key: &str, default_value: &str) -> String
                 }
                 Err(_) => eprintln!("Failed to open .env file!"),
             }
-            return default_value.to_string();
+            default_value.to_string()
         }
     }
 }
