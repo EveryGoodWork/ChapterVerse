@@ -24,7 +24,7 @@ lazy_static! {
 
         let mut bibles = HashMap::new();
 
-        let files = match fs::read_dir(&bibles_directory) {
+        let files = match fs::read_dir(bibles_directory) {
             Ok(files) => files,
             Err(e) => {
                 println!("Error reading bibles directory: {}", e);
@@ -49,13 +49,15 @@ lazy_static! {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or_default()
-                    .to_string();
+                    .to_string()
+                    .to_uppercase();
+                let file_path = entry.path().to_string_lossy().to_string();
                 match bible_import(&entry.path().to_string_lossy()) {
                     Ok(imported_bible) => {
                         bibles.insert(file_stem, Arc::new(imported_bible));
                     }
                     Err(err) => {
-                        println!("Error running import: {}", err);
+                        println!("Error running import for file '{}': {}", file_path, err);
                     }
                 }
             }
@@ -71,13 +73,14 @@ fn get_bibles_names() -> String {
 
 fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
     let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
-    bibles.get(bible_name).cloned()
+    let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
+    bibles.get(&lookup_name).cloned()
 }
 
 fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
-    PrintCommand::System.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
+    PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
 
     //Temp commandline to confirm lookup of scripture is working
     let mut bible_name = String::new();
@@ -88,17 +91,16 @@ fn main() {
     io::stdin().read_line(&mut bible_name).unwrap();
     bible_name = bible_name.trim().to_string();
 
-    print!("Enter Scripture reference (e.g., for 2 Tim 3:16 use '55:3:16'): ");
+    print!("Enter Scripture reference (2 Tim 3:16): ");
     io::stdout().flush().unwrap();
     io::stdin().read_line(&mut scripture_reference).unwrap();
     scripture_reference = scripture_reference.trim().to_string();
 
     println!("{}: {}", bible_name, scripture_reference);
     if let Some(bible_arc) = get_specific_bible(&bible_name) {
-        let bible: &Bible = &*bible_arc;
-        let (found, scripture) = bible.get_scripture(&scripture_reference);
-        if found {
-            println!("{}: {}", scripture_reference, scripture);
+        let bible: &Bible = &bible_arc;
+        if let Some(verse) = bible.get_scripture(&scripture_reference) {
+            println!("{}: {}", verse.reference, verse.scripture);
         } else {
             println!("Verse not found");
         }
@@ -111,19 +113,19 @@ fn main() {
 mod unittests {
     use super::*;
 
+    // use the following command line to see the results of the test.
+    // cargo test -- --nocapture
     #[test]
     fn get_scripture() {
         for (bible_name, bible_arc) in BIBLES.iter() {
             let bible: &Bible = &*bible_arc; // Here you dereference the Arc and immediately borrow the result
 
-            PrintCommand::Info.print_message(
-                &format!("{}, 2 Timothy 3:16", bible_name),
-                &bible
-                    .get_scripture("55:3:16")
-                    .0
-                    .then(|| bible.get_scripture("55:3:16").1)
-                    .unwrap_or_else(|| "Verse not found".to_string()),
-            );
+            let message = match bible.get_scripture("2 Timothy 3:16") {
+                Some(verse) => format!("{}", verse.scripture),
+                None => "Verse not found".to_string(),
+            };
+
+            PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &message);
         }
     }
 }
