@@ -1,6 +1,6 @@
 [package]
 name = "chapterverse"
-version = "2024.2.22"
+version = "2024.3.22"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -24,9 +24,10 @@ strum = "^0.26.1"
 strum_macros = "^0.26.1"
 tokio = "^1.36.0"
 lazy_static = "1.4.0"
+regex = "1.10.3"
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = {version = "0.5.1", features = ["html_reports"]}
 
 [[bench]]
 name = "bible_benchmark"
