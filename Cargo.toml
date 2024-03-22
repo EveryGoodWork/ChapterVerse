@@ -24,6 +24,7 @@ strum = "^0.26.1"
 strum_macros = "^0.26.1"
 tokio = "^1.36.0"
 lazy_static = "1.4.0"
+regex = "1.10.3"
 
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
