@@ -24,9 +24,6 @@ impl Bible {
     pub fn insert(&mut self, scripture: Verse) {
         self.index.insert(scripture.reference.clone(), scripture);
     }
-    // pub fn get(&self, id: &str) -> Option<&Verse> {
-    //     self.index.get(id)
-    // }
     pub fn get_scripture(&self, reference: &str) -> Option<Verse> {
         let re = regex::Regex::new(r"^(\d?\s*\D+)(\d+):(\d+)$").unwrap();
         if let Some(caps) = re.captures(reference) {
@@ -61,10 +58,8 @@ impl Bible {
             "ruth" | "rth" | "ru" => "Ruth",
             "1 samuel" | "1 sam" | "1 sm" | "1 sa" | "1 s" | "i sam" | "i sa" | "1sam" | "1sa"
             | "1s" | "1st samuel" | "1st sam" | "first samuel" | "first sam" => "1 Samuel",
-            "2 samuel" | "2 sam" | "2 sm" | "2 sa" | "2 s" | "ii sam" | "ii sa" | "2sam"
-            | "2sa" | "2s" | "2nd samuel" | "2nd sam" | "second samuel" | "second sam" => {
-                "2 Samuel"
-            }
+            "2 samuel" | "2 sam" | "2 sm" | "2 sa" | "ii sam" | "ii sa" | "2sam" | "2nd samuel"
+            | "2nd sam" | "second samuel" | "second sam" => "2 Samuel",
             "1 kings" | "1 kgs" | "1 ki" | "1kgs" | "1kin" | "1ki" | "1k" | "i kgs" | "i ki"
             | "1st kings" | "1st kgs" | "first kings" | "first kgs" => "1 Kings",
             "2 kings" | "2 kgs" | "2 ki" | "2kgs" | "2kin" | "2ki" | "2k" | "ii kgs" | "ii ki"
@@ -82,14 +77,7 @@ impl Bible {
             "psalm" | "psalms" | "ps" | "pslm" | "psa" | "psm" | "pss" => "Psalm",
             "proverbs" | "prov" | "pro" | "prv" | "pr" => "Proverbs",
             "ecclesiastes" | "eccles" | "eccle" | "ecc" | "ec" | "qoh" => "Ecclesiastes",
-            "song of solomon"
-            | "song"
-            | "song of songs"
-            | "sos"
-            | "so"
-            | "canticle of canticles"
-            | "canticles"
-            | "cant" => "Song of Solomon",
+            "song of solomon" | "song of songs" | "sos" => "Song of Solomon",
             "isaiah" | "isa" | "is" => "Isaiah",
             "jeremiah" | "jer" | "je" | "jr" => "Jeremiah",
             "lamentations" | "lam" | "la" => "Lamentations",
@@ -123,7 +111,7 @@ impl Bible {
             "galatians" | "gal" | "ga" => "Galatians",
             "ephesians" | "eph" | "ephes" => "Ephesians",
             "philippians" | "phil" | "php" | "pp" => "Philippians",
-            "colossians" | "col" | "co" => "Colossians",
+            "colossians" | "col" => "Colossians",
             "1 thessalonians"
             | "1 thess"
             | "1 thes"
