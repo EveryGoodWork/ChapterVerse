@@ -3,7 +3,7 @@ use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
 use tokio::sync::Mutex;
-use twitch::connect;
+use twitch::WebSocketClient;
 use twitch::{self, WebSocketState};
 
 use lazy_static::lazy_static;
@@ -94,8 +94,11 @@ async fn main() {
     }
 
     let websocket_state = Arc::new(Mutex::new(WebSocketState::new()));
-    if let Err(e) = connect(websocket_state).await {
-        eprintln!("Error during connection: {}", e);
+    let client = WebSocketClient::new(websocket_state);
+
+    // Now call connect on your client instance
+    if let Err(e) = client.connect().await {
+        println!("Failed to connect: {:?}", e);
     }
 
     // //Temp commandline to confirm lookup of scripture is working
