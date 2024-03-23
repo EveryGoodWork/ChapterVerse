@@ -8,6 +8,18 @@ use std::sync::{
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
+pub mod data;
+pub struct WebSocketState {
+    is_connecting: AtomicBool,
+}
+
+impl WebSocketState {
+    pub fn new() -> Self {
+        WebSocketState {
+            is_connecting: AtomicBool::new(false),
+        }
+    }
+}
 pub struct WebSocketClient {
     pub tx: Mutex<Option<mpsc::UnboundedSender<Message>>>,
     websocket_state: Arc<Mutex<WebSocketState>>,
@@ -21,7 +33,7 @@ impl WebSocketClient {
         }
     }
 
-    pub async fn connect(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn connect_listener(&self) -> Result<(), Box<dyn std::error::Error>> {
         let url = "ws://irc-ws.chat.twitch.tv:80";
         println!("Attempting to connect to WebSocket at URL: {}", url);
         {
@@ -35,13 +47,15 @@ impl WebSocketClient {
             }
         }
 
-        let ws_stream = connect_async(url)
-            .await
-            .map_err(|e| {
+        let ws_stream = match connect_async(url).await {
+            Ok(stream) => stream.0,
+            Err(e) => {
                 println!("Failed to connect: {:?}", e);
-                e
-            })?
-            .0;
+                let ws_state = self.websocket_state.lock().await;
+                ws_state.is_connecting.store(false, Ordering::SeqCst);
+                return Err(Box::new(e));
+            }
+        };
 
         let (mut write, read) = ws_stream.split();
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -66,6 +80,14 @@ impl WebSocketClient {
         });
 
         self.listen_to_incoming_messages(read, tx).await;
+
+        // Successfully connected, setting is_connecting to false
+        {
+            let ws_state = self.websocket_state.lock().await;
+            ws_state.is_connecting.store(false, Ordering::SeqCst);
+            println!("Connected and ready.");
+        }
+
         Ok(())
     }
 
@@ -88,36 +110,29 @@ impl WebSocketClient {
 
     async fn handle_message(&self, message: String) {
         if message.starts_with("PING") {
-            println!("Handling PING message.");
+            println!("PING, sending PONG.");
             if let Err(e) = self.send_message("PONG").await {
                 println!("Failed to respond to PING with PONG: {:?}", e);
             }
         } else if message.contains("PRIVMSG") {
             println!("Received PRIVMSG: {}", message);
+            if let Some(parsed_message) = crate::data::message_data::parse_message(&message) {
+                println!("{:#?}", parsed_message);
+            } else {
+                println!("Failed to parse the message.");
+            }
         } else if message.contains(":Welcome, GLHF!") {
-            println!("Connected to Twitch");
+            println!("Welcome to Twitch");
         }
     }
 
-    pub async fn send_message(&self, message_str: &str) -> Result<(), &'static str> {
-        let message = Message::Text(message_str.to_string());
+    pub async fn send_message(&self, message: &str) -> Result<(), &'static str> {
+        let message = Message::Text(message.to_string());
         let tx_lock = self.tx.lock().await;
         if let Some(tx) = &*tx_lock {
             tx.send(message).map_err(|_| "Failed to send message")
         } else {
             Err("Connection not initialized")
-        }
-    }
-}
-
-pub struct WebSocketState {
-    is_connecting: AtomicBool,
-}
-
-impl WebSocketState {
-    pub fn new() -> Self {
-        WebSocketState {
-            is_connecting: AtomicBool::new(false),
         }
     }
 }

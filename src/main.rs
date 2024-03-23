@@ -97,7 +97,7 @@ async fn main() {
     let client = WebSocketClient::new(websocket_state);
 
     // Now call connect on your client instance
-    if let Err(e) = client.connect().await {
+    if let Err(e) = client.connect_listener().await {
         println!("Failed to connect: {:?}", e);
     }
 
