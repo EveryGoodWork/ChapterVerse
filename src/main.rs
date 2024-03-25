@@ -2,9 +2,8 @@ use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
-use tokio::sync::Mutex;
-use twitch::WebSocketClient;
-use twitch::{self, WebSocketState};
+use twitch::{self};
+use twitch::{WebSocketClient, WebSocketState};
 
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -93,14 +92,27 @@ async fn main() {
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &message);
     }
 
-    let websocket_state = Arc::new(Mutex::new(WebSocketState::new()));
-    let client = WebSocketClient::new(websocket_state);
+    let client = WebSocketClient::new();
 
     // Now call connect on your client instance
-    if let Err(e) = client.connect_listener().await {
-        println!("Failed to connect: {:?}", e);
-    }
+    // if let Err(e) = client.connect_listener().await {
+    //     println!("Failed to connect: {:?}", e);
+    // }
 
+    loop {
+        if let Err(e) = client.connect_listener().await {
+            println!("Failed to connect: {:?}", e);
+        }
+
+        // Add a small delay before checking the state to avoid rapid reconnection attempts
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        if client.get_state() != WebSocketState::Disconnected {
+            break;
+        }
+
+        println!("Connection lost, attempting to reconnect...");
+    }
     // //Temp commandline to confirm lookup of scripture is working
     // let mut bible_name = String::new();
     // let mut scripture_reference = String::new();

@@ -1,58 +1,85 @@
+use data::channel_data::{Channel, ChannelState};
 use futures_util::pin_mut;
 use futures_util::{stream::StreamExt, SinkExt};
 use rand::Rng;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub mod data;
-pub struct WebSocketState {
-    is_connecting: AtomicBool,
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebSocketState {
+    NotConnected,
+    Connecting,
+    Connected,
+    Disconnected,
+    Failed,
 }
 
-impl WebSocketState {
-    pub fn new() -> Self {
-        WebSocketState {
-            is_connecting: AtomicBool::new(false),
+impl From<usize> for WebSocketState {
+    fn from(value: usize) -> Self {
+        match value {
+            x if x == WebSocketState::NotConnected as usize => WebSocketState::NotConnected,
+            x if x == WebSocketState::Connecting as usize => WebSocketState::Connecting,
+            x if x == WebSocketState::Connected as usize => WebSocketState::Connected,
+            _ => WebSocketState::Disconnected,
         }
     }
 }
 pub struct WebSocketClient {
     pub tx: Mutex<Option<mpsc::UnboundedSender<Message>>>,
-    websocket_state: Arc<Mutex<WebSocketState>>,
+    websocket_state: Arc<AtomicUsize>,
+    channels: Mutex<VecDeque<Channel>>,
 }
 
 impl WebSocketClient {
-    pub fn new(websocket_state: Arc<Mutex<WebSocketState>>) -> Self {
+    pub fn new() -> Self {
         WebSocketClient {
             tx: Mutex::new(None),
-            websocket_state,
+            websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
+            channels: Mutex::new(VecDeque::new()),
         }
     }
 
+    pub fn get_state(&self) -> WebSocketState {
+        match self.websocket_state.load(Ordering::SeqCst) {
+            x if x == WebSocketState::NotConnected as usize => WebSocketState::NotConnected,
+            x if x == WebSocketState::Connecting as usize => WebSocketState::Connecting,
+            x if x == WebSocketState::Connected as usize => WebSocketState::Connected,
+            x if x == WebSocketState::Failed as usize => WebSocketState::Failed,
+            _ => WebSocketState::Disconnected,
+        }
+    }
+
+    fn set_state(&self, state: WebSocketState) {
+        self.websocket_state.store(state as usize, Ordering::SeqCst);
+    }
+
     pub async fn connect_listener(&self) -> Result<(), Box<dyn std::error::Error>> {
+        match self.get_state() {
+            WebSocketState::NotConnected => {
+                self.set_state(WebSocketState::Connecting);
+            }
+            WebSocketState::Connecting => return Ok(()),
+            WebSocketState::Connected => return Ok(()),
+            WebSocketState::Disconnected => {
+                println!("Disconnected, trying to re-connect");
+                self.set_state(WebSocketState::Connecting)
+            }
+            WebSocketState::Failed => todo!(),
+        }
+
         let url = "ws://irc-ws.chat.twitch.tv:80";
         println!("Attempting to connect to WebSocket at URL: {}", url);
-        {
-            let ws_state = self.websocket_state.lock().await;
-            if ws_state.is_connecting.load(Ordering::SeqCst) {
-                println!("Already attempting to connect. Exiting...");
-                return Ok(());
-            } else {
-                ws_state.is_connecting.store(true, Ordering::SeqCst);
-                println!("Connection attempt marked as in progress.");
-            }
-        }
 
         let ws_stream = match connect_async(url).await {
             Ok(stream) => stream.0,
             Err(e) => {
                 println!("Failed to connect: {:?}", e);
-                let ws_state = self.websocket_state.lock().await;
-                ws_state.is_connecting.store(false, Ordering::SeqCst);
+                self.set_state(WebSocketState::Failed);
                 return Err(Box::new(e));
             }
         };
@@ -69,7 +96,6 @@ impl WebSocketClient {
 
         self.send_message(&nick_message).await?;
         self.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await?;
-        self.send_message("JOIN #chapterverse").await?;
 
         tokio::spawn(async move {
             while let Some(message) = rx.recv().await {
@@ -79,19 +105,57 @@ impl WebSocketClient {
             }
         });
 
-        self.listen_to_incoming_messages(read, tx).await;
+        self.set_state(WebSocketState::Connected);
+        println!("WebSocket Connected and ready.");
 
-        // Successfully connected, setting is_connecting to false
-        {
-            let ws_state = self.websocket_state.lock().await;
-            ws_state.is_connecting.store(false, Ordering::SeqCst);
-            println!("Connected and ready.");
-        }
+        self.join_channel("chapterverse").await;
+
+        // Infinite loop to listen to incoming messages.
+        self.listen_for_messages_while_loop(read, tx).await;
 
         Ok(())
     }
 
-    async fn listen_to_incoming_messages(
+    pub async fn join_channel(&self, channel_name: &str) {
+        {
+            let mut channels = self.channels.lock().await;
+            if !channels.iter().any(|c| c.name == channel_name) {
+                let new_channel = Channel {
+                    name: channel_name.to_string(),
+                    state: ChannelState::NotConnected,
+                };
+                channels.push_back(new_channel);
+                println!("Added channel: {}", channel_name);
+            } else {
+                println!("Channel already exists: {}", channel_name);
+            }
+        }
+        self.join_pending_channels().await;
+    }
+
+    async fn join_pending_channels(&self) {
+        if self.get_state() != WebSocketState::Connected {
+            println!("WebSocket is not connected. Unable to join channels.");
+            return;
+        }
+        let mut channels = self.channels.lock().await;
+
+        for channel in channels.iter_mut() {
+            if channel.state == ChannelState::NotConnected {
+                // Attempt to send the JOIN message for the channel
+                if let Err(e) = self.send_message(&format!("JOIN #{}", channel.name)).await {
+                    println!("Error joining channel {}: {}", channel.name, e);
+                } else {
+                    println!("Joining channel: {}", channel.name);
+                    channel.state = ChannelState::Connecting; // Update the state to reflect the action
+                }
+            } else {
+                println!("Already joined channel: {}", channel.name);
+            }
+        }
+    }
+
+    async fn listen_for_messages_while_loop(
         &self,
         read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
         _tx: mpsc::UnboundedSender<Message>,
@@ -102,27 +166,32 @@ impl WebSocketClient {
                 Ok(Message::Text(text)) => {
                     self.handle_message(text).await;
                 }
-                Err(e) => println!("Error reading message: {:?}", e),
-                _ => {} // Ignore other cases
+                Err(e) => {
+                    self.set_state(WebSocketState::Disconnected);
+                    let mut channels = self.channels.lock().await;
+                    for channel in channels.iter_mut() {
+                        channel.state = ChannelState::NotConnected;
+                    }
+                    println!("Message Error: {:?}", e)
+                }
+                _ => {}
             }
         }
     }
 
     async fn handle_message(&self, message: String) {
         if message.starts_with("PING") {
-            println!("PING, sending PONG.");
-            if let Err(e) = self.send_message("PONG").await {
-                println!("Failed to respond to PING with PONG: {:?}", e);
-            }
+            println!("Received PING, sending PONG.");
+            let _ = self.send_message(&message.replace("PING", "PONG")).await;
         } else if message.contains("PRIVMSG") {
             println!("Received PRIVMSG: {}", message);
             if let Some(parsed_message) = crate::data::message_data::parse_message(&message) {
-                println!("{:#?}", parsed_message);
+                println!("Message: {}", parsed_message.text);
             } else {
                 println!("Failed to parse the message.");
             }
         } else if message.contains(":Welcome, GLHF!") {
-            println!("Welcome to Twitch");
+            println!("Ready to listen to Twitch channels.");
         }
     }
 
