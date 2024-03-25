@@ -2,6 +2,8 @@ use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
+use tokio::sync::mpsc;
+use twitch::data::message_data::MessageData;
 use twitch::{self};
 use twitch::{WebSocketClient, WebSocketState};
 
@@ -85,26 +87,39 @@ async fn main() {
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
     for (bible_name, bible_arc) in BIBLES.iter() {
         let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
-        let message = match bible.get_scripture("2 Timothy 3:16") {
+        let scripture = match bible.get_scripture("2 Timothy 3:16") {
             Some(verse) => format!("{}", verse.scripture),
             None => "Verse not found".to_string(),
         };
-        PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &message);
+        PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
-    let client = WebSocketClient::new();
+    let (tx, mut rx) = mpsc::unbounded_channel::<MessageData>();
+    let client = WebSocketClient::new(tx);
 
-    // Now call connect on your client instance
-    // if let Err(e) = client.connect_listener().await {
-    //     println!("Failed to connect: {:?}", e);
-    // }
+    tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            // Handle received message, for example:
+            println!("Received message for handling: {}", message.text);
+            // Iterate through each Bible and search for the scripture
+            for (bible_name, bible_arc) in BIBLES.iter() {
+                let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
+                let scripture_message = match bible.get_scripture(&message.text) {
+                    Some(verse) => format!("{}", verse.scripture),
+                    None => "Verse not found".to_string(),
+                };
+                PrintCommand::Info.print_message(
+                    &format!("{}, {}", bible_name, &message.text),
+                    &scripture_message,
+                );
+            }
+        }
+    });
 
     loop {
         if let Err(e) = client.connect_listener().await {
             println!("Failed to connect: {:?}", e);
         }
-
-        // Add a small delay before checking the state to avoid rapid reconnection attempts
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
         if client.get_state() != WebSocketState::Disconnected {

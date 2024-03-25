@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessageData {
     pub badge_info: Option<String>,
     pub badges: Option<String>,
@@ -19,6 +19,7 @@ pub struct MessageData {
     pub user_type: Option<String>,
     pub channel: String,
     pub text: String,
+    pub raw_message: String,
 }
 
 pub fn parse_message(raw_message: &str) -> Option<MessageData> {
@@ -30,7 +31,7 @@ pub fn parse_message(raw_message: &str) -> Option<MessageData> {
     let channel_text_split = content_split.1.split_once(" :")?;
     let (channel, text) = (
         channel_text_split.0.to_string(),
-        channel_text_split.1.to_string(),
+        channel_text_split.1.trim_end_matches("\r\n").to_string(),
     );
 
     let mut message = MessageData {
@@ -53,6 +54,7 @@ pub fn parse_message(raw_message: &str) -> Option<MessageData> {
         user_type: None,
         channel,
         text,
+        raw_message: raw_message.to_string(),
     };
 
     for part in meta.split(";") {

@@ -1,4 +1,5 @@
 use data::channel_data::{Channel, ChannelState};
+use data::message_data::MessageData;
 use futures_util::pin_mut;
 use futures_util::{stream::StreamExt, SinkExt};
 use rand::Rng;
@@ -31,14 +32,16 @@ impl From<usize> for WebSocketState {
 }
 pub struct WebSocketClient {
     pub tx: Mutex<Option<mpsc::UnboundedSender<Message>>>,
+    pub message_tx: mpsc::UnboundedSender<MessageData>,
     websocket_state: Arc<AtomicUsize>,
     channels: Mutex<VecDeque<Channel>>,
 }
 
 impl WebSocketClient {
-    pub fn new() -> Self {
+    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
         WebSocketClient {
             tx: Mutex::new(None),
+            message_tx,
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             channels: Mutex::new(VecDeque::new()),
         }
@@ -187,6 +190,9 @@ impl WebSocketClient {
             println!("Received PRIVMSG: {}", message);
             if let Some(parsed_message) = crate::data::message_data::parse_message(&message) {
                 println!("Message: {}", parsed_message.text);
+                if let Err(e) = self.message_tx.send(parsed_message.clone()) {
+                    eprintln!("Failed to send message to main.rs: {}", e);
+                }
             } else {
                 println!("Failed to parse the message.");
             }
