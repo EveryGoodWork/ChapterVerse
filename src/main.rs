@@ -2,11 +2,15 @@ use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
+use tokio::sync::mpsc;
+use twitch::data::message_data::MessageData;
+use twitch::{self};
+use twitch::{WebSocketClient, WebSocketState};
+
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::Arc;
-use std::{env, fs, io};
+use std::{env, fs};
 
 mod helpers;
 
@@ -67,46 +71,95 @@ lazy_static! {
     };
 }
 
-fn get_bibles_names() -> String {
-    BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
-}
+// fn get_bibles_names() -> String {
+//     BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
+// }
 
-fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
-    let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
-    let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
-    bibles.get(&lookup_name).cloned()
-}
-
-fn main() {
+// fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
+//     let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
+//     let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
+//     bibles.get(&lookup_name).cloned()
+// }
+#[tokio::main]
+async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
-
-    //Temp commandline to confirm lookup of scripture is working
-    let mut bible_name = String::new();
-    let mut scripture_reference = String::new();
-
-    print!("Enter Bible version ({}): ", get_bibles_names());
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(&mut bible_name).unwrap();
-    bible_name = bible_name.trim().to_string();
-
-    print!("Enter Scripture reference (2 Tim 3:16): ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(&mut scripture_reference).unwrap();
-    scripture_reference = scripture_reference.trim().to_string();
-
-    println!("{}: {}", bible_name, scripture_reference);
-    if let Some(bible_arc) = get_specific_bible(&bible_name) {
-        let bible: &Bible = &bible_arc;
-        if let Some(verse) = bible.get_scripture(&scripture_reference) {
-            println!("{}: {}", verse.reference, verse.scripture);
-        } else {
-            println!("Verse not found");
-        }
-    } else {
-        println!("Bible version not found: {}", bible_name);
+    for (bible_name, bible_arc) in BIBLES.iter() {
+        let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
+        let scripture = match bible.get_scripture("2 Timothy 3:16") {
+            Some(verse) => format!("{}", verse.scripture),
+            None => "Verse not found".to_string(),
+        };
+        PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<MessageData>();
+    let client = WebSocketClient::new(tx);
+
+    // TODO:  Create a config files to pull these from, each channel gets it's own file.
+    client.join_channel("chapterverse").await;
+    client.join_channel("missionarygamer").await;
+
+    tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            // Handle received message, for example:
+            println!("Received message for handling: {}", message.text);
+            for (bible_name, bible_arc) in BIBLES.iter() {
+                let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
+                let scripture_message = match bible.get_scripture(&message.text) {
+                    Some(verse) => format!("{}", verse.scripture),
+                    None => "Verse not found".to_string(),
+                };
+                PrintCommand::Info.print_message(
+                    &format!(
+                        "{}, {}",
+                        bible_name,
+                        message.display_name.unwrap_or_default()
+                    ),
+                    &scripture_message,
+                );
+            }
+        }
+    });
+
+    loop {
+        if let Err(e) = client.connect_listener().await {
+            println!("Failed to connect: {:?}", e);
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        if client.get_state() != WebSocketState::Disconnected {
+            break;
+        }
+
+        println!("Connection lost, attempting to reconnect...");
+    }
+    // //Temp commandline to confirm lookup of scripture is working
+    // let mut bible_name = String::new();
+    // let mut scripture_reference = String::new();
+
+    // print!("Enter Bible version ({}): ", get_bibles_names());
+    // io::stdout().flush().unwrap();
+    // io::stdin().read_line(&mut bible_name).unwrap();
+    // bible_name = bible_name.trim().to_string();
+
+    // print!("Enter Scripture reference (2 Tim 3:16): ");
+    // io::stdout().flush().unwrap();
+    // io::stdin().read_line(&mut scripture_reference).unwrap();
+    // scripture_reference = scripture_reference.trim().to_string();
+
+    // println!("{}: {}", bible_name, scripture_reference);
+    // if let Some(bible_arc) = get_specific_bible(&bible_name) {
+    //     let bible: &Bible = &bible_arc;
+    //     if let Some(verse) = bible.get_scripture(&scripture_reference) {
+    //         println!("{}: {}", verse.reference, verse.scripture);
+    //     } else {
+    //         println!("Verse not found");
+    //     }
+    // } else {
+    //     println!("Bible version not found: {}", bible_name);
+    // }
 }
 
 #[cfg(test)]
