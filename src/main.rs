@@ -97,11 +97,14 @@ async fn main() {
     let (tx, mut rx) = mpsc::unbounded_channel::<MessageData>();
     let client = WebSocketClient::new(tx);
 
+    // TODO:  Create a config files to pull these from, each channel gets it's own file.
+    client.join_channel("chapterverse").await;
+    client.join_channel("missionarygamer").await;
+
     tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
             // Handle received message, for example:
             println!("Received message for handling: {}", message.text);
-            // Iterate through each Bible and search for the scripture
             for (bible_name, bible_arc) in BIBLES.iter() {
                 let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
                 let scripture_message = match bible.get_scripture(&message.text) {
@@ -109,7 +112,11 @@ async fn main() {
                     None => "Verse not found".to_string(),
                 };
                 PrintCommand::Info.print_message(
-                    &format!("{}, {}", bible_name, &message.text),
+                    &format!(
+                        "{}, {}",
+                        bible_name,
+                        message.display_name.unwrap_or_default()
+                    ),
                     &scripture_message,
                 );
             }

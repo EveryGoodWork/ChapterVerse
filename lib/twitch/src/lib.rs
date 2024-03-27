@@ -110,8 +110,7 @@ impl WebSocketClient {
 
         self.set_state(WebSocketState::Connected);
         println!("WebSocket Connected and ready.");
-
-        self.join_channel("chapterverse").await;
+        self.join_pending_channels().await;
 
         // Infinite loop to listen to incoming messages.
         self.listen_for_messages_while_loop(read, tx).await;
@@ -137,6 +136,7 @@ impl WebSocketClient {
     }
 
     async fn join_pending_channels(&self) {
+        //println!("WebSocketState: {:?}", self.get_state());
         if self.get_state() != WebSocketState::Connected {
             println!("WebSocket is not connected. Unable to join channels.");
             return;
@@ -187,14 +187,14 @@ impl WebSocketClient {
             println!("Received PING, sending PONG.");
             let _ = self.send_message(&message.replace("PING", "PONG")).await;
         } else if message.contains("PRIVMSG") {
-            println!("Received PRIVMSG: {}", message);
+            // println!("Received PRIVMSG: {}", message);
             if let Some(parsed_message) = crate::data::message_data::parse_message(&message) {
-                println!("Message: {}", parsed_message.text);
+                // println!("Message: {}", parsed_message.text);
                 if let Err(e) = self.message_tx.send(parsed_message.clone()) {
                     eprintln!("Failed to send message to main.rs: {}", e);
                 }
             } else {
-                println!("Failed to parse the message.");
+                eprintln!("Failed to parse the message.");
             }
         } else if message.contains(":Welcome, GLHF!") {
             println!("Ready to listen to Twitch channels.");
