@@ -103,10 +103,12 @@ async fn main() {
 
     tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
-            // Handle received message, for example:
-            println!("Received message for handling: {}", message.text);
-            for (bible_name, bible_arc) in BIBLES.iter() {
-                let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
+            // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
+            // TODO! this will pull from a user preference variable
+            let bible_name_to_use = "KJV";
+
+            if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                let bible: &Bible = &*bible_arc;
                 let scripture_message = match bible.get_scripture(&message.text) {
                     Some(verse) => format!("{}", verse.scripture),
                     None => "Verse not found".to_string(),
@@ -114,11 +116,18 @@ async fn main() {
                 PrintCommand::Info.print_message(
                     &format!(
                         "{}, {}",
-                        bible_name,
+                        bible_name_to_use,
                         message.display_name.unwrap_or_default()
                     ),
                     &scripture_message,
                 );
+            } else {
+                eprintln!("Bible named '{}' not found.", bible_name_to_use);
+            }
+
+            match message.complete() {
+                Ok(duration) => println!("Message processing duration: {:?}", duration),
+                Err(e) => eprintln!("Error calculating duration: {}", e),
             }
         }
     });

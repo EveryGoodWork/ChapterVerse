@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct MessageData {
@@ -23,12 +23,14 @@ pub struct MessageData {
     pub text: String,
     pub raw_message: String,
     pub received: SystemTime,
-    pub completed: SystemTime,
 }
 
 impl MessageData {
-    pub fn complete(&mut self) {
-        self.completed = SystemTime::now();
+    pub fn complete(&self) -> Result<Duration, &'static str> {
+        match SystemTime::now().duration_since(self.received) {
+            Ok(duration) => Ok(duration),
+            Err(_) => Err("Time went backwards"),
+        }
     }
 }
 
@@ -42,9 +44,6 @@ pub fn parse_message(raw_message: &str) -> Option<MessageData> {
         channel_text_split.0.to_string(),
         channel_text_split.1.trim_end_matches("\r\n").to_string(),
     );
-
-    let received_at = SystemTime::now();
-
     let mut message = MessageData {
         badge_info: None,
         badges: None,
@@ -67,7 +66,6 @@ pub fn parse_message(raw_message: &str) -> Option<MessageData> {
         text,
         raw_message: raw_message.to_string(),
         received: SystemTime::now(),
-        completed: SystemTime::now(),
     };
 
     for part in meta.split(";") {

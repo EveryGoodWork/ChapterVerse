@@ -1,5 +1,5 @@
 use data::channel_data::{Channel, ChannelState};
-use data::message_data::MessageData;
+use data::message_data::{self, MessageData};
 use futures_util::pin_mut;
 use futures_util::{stream::StreamExt, SinkExt};
 use rand::Rng;
@@ -120,6 +120,7 @@ impl WebSocketClient {
 
     pub async fn join_channel(&self, channel_name: &str) {
         {
+            // TODO:  add persistance to file feature.
             let mut channels = self.channels.lock().await;
             if !channels.iter().any(|c| c.name == channel_name) {
                 let new_channel = Channel {
@@ -137,6 +138,8 @@ impl WebSocketClient {
 
     async fn join_pending_channels(&self) {
         //println!("WebSocketState: {:?}", self.get_state());
+
+        //TODO:  Pull from persistance to files.
         if self.get_state() != WebSocketState::Connected {
             println!("WebSocket is not connected. Unable to join channels.");
             return;
@@ -183,21 +186,23 @@ impl WebSocketClient {
     }
 
     async fn handle_message(&self, message: String) {
-        if message.starts_with("PING") {
-            println!("Received PING, sending PONG.");
-            let _ = self.send_message(&message.replace("PING", "PONG")).await;
-        } else if message.contains("PRIVMSG") {
-            // println!("Received PRIVMSG: {}", message);
-            if let Some(parsed_message) = crate::data::message_data::parse_message(&message) {
-                // println!("Message: {}", parsed_message.text);
-                if let Err(e) = self.message_tx.send(parsed_message.clone()) {
-                    eprintln!("Failed to send message to main.rs: {}", e);
-                }
-            } else {
-                eprintln!("Failed to parse the message.");
+        match message.as_str() {
+            _ if message.starts_with("PING") => {
+                println!("Received PING, sending PONG.");
+                let _ = self.send_message(&message.replace("PING", "PONG")).await;
             }
-        } else if message.contains(":Welcome, GLHF!") {
-            println!("Ready to listen to Twitch channels.");
+            _ if message.contains("PRIVMSG") => match message_data::parse_message(&message) {
+                Some(parsed_message) => {
+                    if let Err(e) = self.message_tx.send(parsed_message) {
+                        eprintln!("Failed to send message to main.rs: {}", e);
+                    }
+                }
+                None => eprintln!("Failed to parse the message."),
+            },
+            _ if message.contains(":Welcome, GLHF!") => {
+                println!("Ready to listen to Twitch channels.");
+            }
+            _ => {}
         }
     }
 
