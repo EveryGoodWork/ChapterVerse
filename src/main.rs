@@ -3,8 +3,9 @@ use bible::scripture::bible::Bible;
 use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
 use tokio::sync::mpsc;
-use twitch::data::message_data::MessageData;
-use twitch::{self};
+
+use twitch::chat::Listener;
+use twitch::common::message_data::MessageData;
 use twitch::{WebSocketClient, WebSocketState};
 
 use lazy_static::lazy_static;
@@ -95,11 +96,44 @@ async fn main() {
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<MessageData>();
+
+    let (txt, mut rxr) = mpsc::unbounded_channel::<MessageData>();
     let client = WebSocketClient::new(tx);
+    //let listener = Listener::new(txt);
+
+    println!("Trying to connect");
+
+    // if let Err(e) = listener.connect().await {
+    //     eprintln!("Failed to connect: {:?}", e);
+    //     return;
+    // }
+
+    // Channels you want to join
+    let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
+
+    let listener = Arc::new(Listener::new(txt));
+    let listener_clone = Arc::clone(&listener);
+
+    tokio::spawn(async move {
+        // This clone is for moving into the async block
+        //listener_clone.connect().await.expect("Failed to connect");
+        listener.connect().await.expect("Failed to connect");
+        // Any subsequent operations on listener_clone can go here
+
+        // Join channels after successful connection
+        println!("Trying to join channels");
+        for channel in channels_to_join.iter() {
+            match listener_clone.join_channel(channel).await {
+                Ok(_) => println!("Successfully joined channel: {}", channel),
+                Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+            }
+        }
+    });
 
     // TODO:  Create a config files to pull these from, each channel gets it's own file.
-    client.join_channel("chapterverse").await;
-    client.join_channel("missionarygamer").await;
+
+    // listener.join_channel("chapterverse").await;
+    // listener.join_channel("missionarygamer").await;
 
     tokio::spawn(async move {
         while let Some(message) = rx.recv().await {

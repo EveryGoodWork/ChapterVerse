@@ -1,5 +1,5 @@
-use data::channel_data::{Channel, ChannelState};
-use data::message_data::{self, MessageData};
+use common::channel_data::{Channel, ChannelState};
+use common::message_data::{self, MessageData};
 use futures_util::pin_mut;
 use futures_util::{stream::StreamExt, SinkExt};
 use rand::Rng;
@@ -9,7 +9,17 @@ use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
-pub mod data;
+//pub mod chat;
+pub mod common;
+// pub mod twitch_writer;
+
+pub mod chat {
+    pub use self::listener::Listener;
+    // other contents of the chat module go here
+
+    mod listener;
+    // other module files included in chat
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
