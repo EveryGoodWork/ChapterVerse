@@ -87,40 +87,6 @@ impl Listener {
     pub fn get_state(&self) -> WebSocketState {
         self.websocket.get_state()
     }
-    // async fn send_message(&self, message: &str) -> Result<(), &'static str> {
-    //     let msg = Message::Text(message.to_string());
-    //     if let Some(tx) = &*self.write.lock().await {
-    //         tx.send(msg).map_err(|_| "Failed to send message")
-    //     } else {
-    //         Err("Connection not initialized")
-    //     }
-    // }
-
-    // async fn join_pending_channels(&self) {
-    //     println!("WebSocketState: {:?}", self.get_state());
-
-    //     if self.get_state() != WebSocketState::Connected {
-    //         println!("WebSocket is not connected. Unable to join channels.");
-    //         return;
-    //     }
-    //     let mut channels = self.channels.lock().await;
-
-    //     for channel in channels.iter_mut() {
-    //         if channel.state == ChannelState::NotConnected {
-    //             // Attempt to send the JOIN message for the channel
-    //             if let Err(e) = self.send_message(&format!("JOIN #{}", channel.name)).await {
-    //                 println!("Error joining channel {}: {}", channel.name, e);
-    //             } else {
-    //                 println!("Joining channel: {}", channel.name);
-    //                 channel.state = ChannelState::Connecting; // Update the state to reflect the action
-    //             }
-    //         } else {
-    //             println!("Already joined channel: {}", channel.name);
-    //         }
-    //     }
-    // }
-
-    // Inside the Listener struct
     async fn listen_for_messages(
         &self,
         read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>

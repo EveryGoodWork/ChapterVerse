@@ -135,7 +135,16 @@ impl WebSocket {
                         }
                     }
                 }
-                Err(e) => eprintln!("Error receiving message: {:?}", e),
+                Err(e) => {
+                    eprintln!("Error receiving message: {:?}", e);
+                    if let tokio_tungstenite::tungstenite::Error::Io(io_error) = &e {
+                        if io_error.kind() == std::io::ErrorKind::ConnectionReset {
+                            eprintln!("Connection was reset by the remote host.");
+                            // Update the connection state to Disconnected
+                            self.set_state(WebSocketState::Disconnected);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
