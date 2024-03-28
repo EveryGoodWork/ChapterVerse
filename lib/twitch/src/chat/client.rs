@@ -3,11 +3,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures_util::{pin_mut, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
-use super::channel_data::Channel;
-use crate::common::channel_data::ChannelState;
+use crate::common;
+use crate::common::channel_data::{Channel, ChannelState};
+use crate::common::message_data::MessageData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
@@ -34,22 +36,22 @@ pub struct WebSocket {
     pub websocket_state: Arc<AtomicUsize>,
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
     channels: Mutex<VecDeque<Channel>>,
+    message_tx: Option<mpsc::UnboundedSender<MessageData>>,
 }
 impl Clone for WebSocket {
     fn clone(&self) -> Self {
         WebSocket {
             websocket_state: Arc::clone(&self.websocket_state),
             write: Arc::clone(&self.write),
-            // For the channels, since we cannot directly clone a Mutex,
-            // you might consider initializing a new Mutex with a new VecDeque,
-            // or appropriately managing the state according to your app's logic.
             channels: Mutex::new(VecDeque::new()),
+            message_tx: self.message_tx.clone(),
         }
     }
 }
 impl WebSocket {
-    pub fn new() -> Self {
+    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
         Self {
+            message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
             channels: Mutex::new(VecDeque::new()),
@@ -111,22 +113,35 @@ impl WebSocket {
             }
         }
     }
+    pub async fn listen_for_messages(
+        &self,
+        read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
+    ) {
+        pin_mut!(read); // Pin the stream to the stack
+        while let Some(message) = read.next().await {
+            match message {
+                Ok(Message::Text(text)) => {
+                    println!("Received message: {}", text);
+                    // Handle the message, e.g., parse it and act accordingly
+                    if text.starts_with("PING") {
+                        self.send_message(&text.replace("PING", "PONG")).await.ok();
+                    } else if text.contains("PRIVMSG") {
+                        if let Some(parsed_message) = common::message_data::parse_message(&text) {
+                            if let Some(sender) = &self.message_tx {
+                                if let Err(e) = sender.send(parsed_message) {
+                                    eprintln!("Failed to send message to main.rs: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error receiving message: {:?}", e),
+                _ => {}
+            }
+        }
+    }
 }
-
 #[async_trait]
-pub trait TwitchClient {
+pub trait Client {
     async fn connect(&self) -> Result<(), Box<dyn std::error::Error>>;
-    //async fn send_message(&self, message: &str) -> Result<(), &'static str>;
-    //async fn join_channel(&self, channel_name: &str) -> Result<(), &'static str>;
-
-    // fn get_atomic_state(&self) -> Arc<AtomicUsize>;
-    // fn get_state(&self) -> WebSocketState {
-    //     match self.get_atomic_state().load(Ordering::SeqCst) {
-    //         x if x == WebSocketState::NotConnected as usize => WebSocketState::NotConnected,
-    //         x if x == WebSocketState::Connecting as usize => WebSocketState::Connecting,
-    //         x if x == WebSocketState::Connected as usize => WebSocketState::Connected,
-    //         x if x == WebSocketState::Failed as usize => WebSocketState::Failed,
-    //         _ => WebSocketState::Disconnected,
-    //     }
-    // }
 }

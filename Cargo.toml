@@ -27,6 +27,8 @@ regex = "1.10.3"
 async-trait = "0.1.79"
 thiserror = "1.0.58"
 
+futures = "0.3"
+
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
 

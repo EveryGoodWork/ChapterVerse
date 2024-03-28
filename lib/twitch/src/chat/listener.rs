@@ -1,14 +1,11 @@
-use common::message_data::MessageData;
-use futures_util::{pin_mut, stream::StreamExt, SinkExt};
+use crate::common::message_data::MessageData;
+use futures_util::{stream::StreamExt, SinkExt};
 use rand::Rng;
-use std::sync::{mpsc::channel, Arc};
-use tokio::sync::{mpsc, Mutex};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
-use crate::common::{
-    self,
-    twitch_client::{WebSocket, WebSocketState},
-};
+use super::client::{WebSocket, WebSocketState};
 
 pub struct Listener {
     pub message_tx: mpsc::UnboundedSender<MessageData>,
@@ -18,12 +15,11 @@ pub struct Listener {
 impl Listener {
     pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
         Listener {
-            message_tx,
-            websocket: WebSocket::new(),
+            message_tx: message_tx.clone(),
+            websocket: WebSocket::new(message_tx),
         }
     }
-    pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
-        //pub async fn connect(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error + Send>> {
         match self.websocket.get_state() {
             WebSocketState::NotConnected => {
                 println!("NotConnected, trying to connect");
@@ -37,9 +33,11 @@ impl Listener {
             }
             WebSocketState::Failed => todo!(),
         }
-
         let url = "ws://irc-ws.chat.twitch.tv:80";
-        let (ws_stream, _) = connect_async(url).await?;
+        let (ws_stream, _) = connect_async(url)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
         let (mut write, read) = ws_stream.split();
         let (tx, mut rx) = mpsc::unbounded_channel(); // Use the receiver `rx` that is created here
         *self.websocket.write.lock().await = Some(tx.clone());
@@ -48,8 +46,15 @@ impl Listener {
             "NICK justinfan{}",
             rand::thread_rng().gen_range(10000..=99999)
         );
-        self.websocket.send_message(&justinfan).await?;
-        self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await?;
+        self.websocket.send_message(&justinfan).await.map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                as Box<dyn std::error::Error + Send>
+        })?;
+        //self.websocket.send_message(&justinfan).await?;
+        self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await
+    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send>)?;
+
+        //self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await?;
 
         // Correctly use the receiver in a separate task for message sending
         tokio::spawn(async move {
@@ -76,11 +81,11 @@ impl Listener {
 
     pub async fn join_channel(&self, channel_name: &str) -> Result<(), &'static str> {
         println!("join_channel {}", channel_name);
-        // Assuming join_channel on websocket might result in an error, handle it appropriately.
-        // If it returns a Result, you can directly propagate the error using `?`.
-        // If it doesn't return a Result, you might need to adapt based on its error handling mechanism.
         self.websocket.join_channel(channel_name).await;
         Ok(())
+    }
+    pub fn get_state(&self) -> WebSocketState {
+        self.websocket.get_state()
     }
     // async fn send_message(&self, message: &str) -> Result<(), &'static str> {
     //     let msg = Message::Text(message.to_string());
@@ -115,32 +120,13 @@ impl Listener {
     //     }
     // }
 
+    // Inside the Listener struct
     async fn listen_for_messages(
         &self,
-        read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
+        read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+            + Send
+            + 'static,
     ) {
-        pin_mut!(read); // Pin the stream to the stack
-        while let Some(message) = read.next().await {
-            match message {
-                Ok(Message::Text(text)) => {
-                    println!("Received message: {}", text);
-                    // Handle the message, e.g., parse it and act accordingly
-                    if text.starts_with("PING") {
-                        self.websocket
-                            .send_message(&text.replace("PING", "PONG"))
-                            .await
-                            .ok();
-                    } else if text.contains("PRIVMSG") {
-                        if let Some(parsed_message) = common::message_data::parse_message(&text) {
-                            if let Err(e) = self.message_tx.send(parsed_message) {
-                                eprintln!("Failed to send message to main.rs: {}", e);
-                            }
-                        }
-                    }
-                }
-                Err(e) => eprintln!("Error receiving message: {:?}", e),
-                _ => {}
-            }
-        }
+        self.websocket.listen_for_messages(read).await;
     }
 }

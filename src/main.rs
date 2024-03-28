@@ -4,14 +4,15 @@ use helpers::env_variables::get_env_variable;
 use helpers::print_color::PrintCommand;
 use tokio::sync::mpsc;
 
+use futures::future::pending;
 use twitch::chat::Listener;
 use twitch::common::message_data::MessageData;
-use twitch::{WebSocketClient, WebSocketState};
 
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{env, fs};
+use twitch::chat::client::WebSocketState;
 
 mod helpers;
 
@@ -71,16 +72,16 @@ lazy_static! {
         Arc::new(bibles)
     };
 }
-
-// fn get_bibles_names() -> String {
-//     BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
-// }
-
-// fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
-//     let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
-//     let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
-//     bibles.get(&lookup_name).cloned()
-// }
+#[allow(unused)]
+fn get_bibles_names() -> String {
+    BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
+}
+#[allow(unused)]
+fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
+    let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
+    let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
+    bibles.get(&lookup_name).cloned()
+}
 #[tokio::main]
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -95,48 +96,57 @@ async fn main() {
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<MessageData>();
-
-    let (txt, mut rxr) = mpsc::unbounded_channel::<MessageData>();
-    let client = WebSocketClient::new(tx);
-    //let listener = Listener::new(txt);
-
-    println!("Trying to connect");
-
-    // if let Err(e) = listener.connect().await {
-    //     eprintln!("Failed to connect: {:?}", e);
-    //     return;
-    // }
-
-    // Channels you want to join
+    // TODO:  Create a config files to pull these from, each channel gets it's own file.
     let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
 
-    let listener = Arc::new(Listener::new(txt));
-    let listener_clone = Arc::clone(&listener);
+    let (tx, rx) = mpsc::unbounded_channel::<MessageData>();
+    println!("Trying to connect");
 
+    let listener = Arc::new(Listener::new(tx));
+    // Assuming `channels_to_join` is cloned or moved into the async block appropriately
+    let channels_clone = channels_to_join.clone();
+    // Spawn a task to manage connection, listening, and reconnection
     tokio::spawn(async move {
-        // This clone is for moving into the async block
-        //listener_clone.connect().await.expect("Failed to connect");
-        listener.connect().await.expect("Failed to connect");
-        // Any subsequent operations on listener_clone can go here
-
-        // Join channels after successful connection
-        println!("Trying to join channels");
-        for channel in channels_to_join.iter() {
-            match listener_clone.join_channel(channel).await {
-                Ok(_) => println!("Successfully joined channel: {}", channel),
-                Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+        println!("Inside  tokio::spawn");
+        let listener_clone = Arc::clone(&listener);
+        loop {
+            println!("Inside Loop");
+            // Clone `listener_clone` for each loop iteration to avoid moving the original `Arc`
+            let loop_listener_clone = Arc::clone(&listener_clone);
+            // Attempt to connect
+            match loop_listener_clone.connect().await {
+                Ok(_) => println!("Successfully connected."),
+                Err(e) => {
+                    eprintln!("Failed to connect: {:?}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    continue; // Retry connection
+                }
             }
+
+            // Join channels after successful connection
+            for channel in &channels_clone {
+                match listener_clone.join_channel(channel).await {
+                    Ok(_) => println!("Successfully joined channel: {}", channel),
+                    Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                }
+            }
+
+            // Listen for messages or disconnection events
+            while listener_clone.get_state() != WebSocketState::Disconnected {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+
+            // If disconnected, wait before attempting to reconnect
+            //THIS IS NOT WORKING WHEN IT"S DISCONNECTED.
+            //Error receiving message: Io(Os { code: 10054, kind: ConnectionReset, message: "An existing connection was forcibly closed by the remote host." })
+            println!("Disconnected, attempting to reconnect...");
         }
     });
 
-    // TODO:  Create a config files to pull these from, each channel gets it's own file.
-
-    // listener.join_channel("chapterverse").await;
-    // listener.join_channel("missionarygamer").await;
-
+    // Process received messages in another task
+    let mut rx_clone = rx;
     tokio::spawn(async move {
-        while let Some(message) = rx.recv().await {
+        while let Some(message) = rx_clone.recv().await {
             // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
             // TODO! this will pull from a user preference variable
             let bible_name_to_use = "KJV";
@@ -165,52 +175,14 @@ async fn main() {
             }
         }
     });
-
-    loop {
-        if let Err(e) = client.connect_listener().await {
-            println!("Failed to connect: {:?}", e);
-        }
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-        if client.get_state() != WebSocketState::Disconnected {
-            break;
-        }
-
-        println!("Connection lost, attempting to reconnect...");
-    }
-    // //Temp commandline to confirm lookup of scripture is working
-    // let mut bible_name = String::new();
-    // let mut scripture_reference = String::new();
-
-    // print!("Enter Bible version ({}): ", get_bibles_names());
-    // io::stdout().flush().unwrap();
-    // io::stdin().read_line(&mut bible_name).unwrap();
-    // bible_name = bible_name.trim().to_string();
-
-    // print!("Enter Scripture reference (2 Tim 3:16): ");
-    // io::stdout().flush().unwrap();
-    // io::stdin().read_line(&mut scripture_reference).unwrap();
-    // scripture_reference = scripture_reference.trim().to_string();
-
-    // println!("{}: {}", bible_name, scripture_reference);
-    // if let Some(bible_arc) = get_specific_bible(&bible_name) {
-    //     let bible: &Bible = &bible_arc;
-    //     if let Some(verse) = bible.get_scripture(&scripture_reference) {
-    //         println!("{}: {}", verse.reference, verse.scripture);
-    //     } else {
-    //         println!("Verse not found");
-    //     }
-    // } else {
-    //     println!("Bible version not found: {}", bible_name);
-    // }
+    // This line will keep the program running indefinitely until it's killed manually (e.g., Ctrl+C).
+    pending::<()>().await;
 }
 
 #[cfg(test)]
 mod unittests {
     use super::*;
-
-    // use the following command line to see the results of the test.
-    // cargo test -- --nocapture
+    // use the following command line to see the results of the test: cargo test -- --nocapture
     #[test]
     fn get_scripture() {
         for (bible_name, bible_arc) in BIBLES.iter() {
