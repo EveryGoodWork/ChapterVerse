@@ -35,7 +35,7 @@ impl From<usize> for WebSocketState {
 pub struct WebSocket {
     pub websocket_state: Arc<AtomicUsize>,
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
-    channels: Mutex<VecDeque<Channel>>,
+    channels: Arc<Mutex<VecDeque<Channel>>>,
     message_tx: Option<mpsc::UnboundedSender<MessageData>>,
 }
 impl Clone for WebSocket {
@@ -43,7 +43,7 @@ impl Clone for WebSocket {
         WebSocket {
             websocket_state: Arc::clone(&self.websocket_state),
             write: Arc::clone(&self.write),
-            channels: Mutex::new(VecDeque::new()),
+            channels: Arc::clone(&self.channels),
             message_tx: self.message_tx.clone(),
         }
     }
@@ -54,15 +54,20 @@ impl WebSocket {
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
-            channels: Mutex::new(VecDeque::new()),
+            channels: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
     pub fn get_state(&self) -> WebSocketState {
         WebSocketState::from(self.websocket_state.load(Ordering::SeqCst))
     }
-
-    pub fn set_state(&self, state: WebSocketState) {
+    pub async fn set_state(&self, state: WebSocketState) {
         self.websocket_state.store(state as usize, Ordering::SeqCst);
+        if state == WebSocketState::Disconnected {
+            let mut channels = self.channels.lock().await;
+            for channel in channels.iter_mut() {
+                channel.state = ChannelState::NotConnected;
+            }
+        }
     }
     pub async fn send_message(&self, message: &str) -> Result<(), &'static str> {
         let msg = Message::Text(message.to_string());
@@ -82,10 +87,10 @@ impl WebSocket {
                     state: ChannelState::NotConnected,
                 };
                 channels.push_back(new_channel);
-                println!("Added channel: {}", channel_name);
             } else {
                 println!("Channel already exists: {}", channel_name);
             }
+            println!("join_channel channels queue size: {}", channels.len()); // Print the size of the channels queue
         }
         self.join_pending_channels().await;
     }
@@ -93,12 +98,31 @@ impl WebSocket {
     pub async fn join_pending_channels(&self) {
         println!("WebSocketState: {:?}", self.get_state());
 
-        if self.get_state() != WebSocketState::Connected {
-            println!("WebSocket is not connected. Unable to join channels.");
-            return;
+        if self.get_state() == WebSocketState::Connected {
+            // Proceed with joining channels if already connected
+            self.process_channel_joining().await;
+        } else {
+            println!("WebSocket is not connected. Waiting to join channels.");
+            // Spawn a new asynchronous task to wait and retry
+            tokio::spawn({
+                let ws_clone = self.clone();
+                async move {
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        if ws_clone.get_state() == WebSocketState::Connected {
+                            println!("WebSocket is now connected. Attempting to join channels.");
+                            ws_clone.process_channel_joining().await;
+                            break;
+                        }
+                    }
+                }
+            });
         }
+    }
 
+    async fn process_channel_joining(&self) {
         let mut channels = self.channels.lock().await;
+        println!("Current channels queue size: {}", channels.len()); // Print the size of the channels queue
 
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
@@ -113,6 +137,7 @@ impl WebSocket {
             }
         }
     }
+
     pub async fn listen_for_messages(
         &self,
         read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
@@ -122,8 +147,8 @@ impl WebSocket {
             match message {
                 Ok(Message::Text(text)) => {
                     println!("Received message: {}", text);
-                    // Handle the message, e.g., parse it and act accordingly
                     if text.starts_with("PING") {
+                        println!("Received PING, sending: PONG");
                         self.send_message(&text.replace("PING", "PONG")).await.ok();
                     } else if text.contains("PRIVMSG") {
                         if let Some(parsed_message) = common::message_data::parse_message(&text) {
@@ -133,6 +158,9 @@ impl WebSocket {
                                 }
                             }
                         }
+                    } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
+                        println!(":Welcome, GLHF!");
+                        self.set_state(WebSocketState::Connected).await;
                     }
                 }
                 Err(e) => {
@@ -140,8 +168,7 @@ impl WebSocket {
                     if let tokio_tungstenite::tungstenite::Error::Io(io_error) = &e {
                         if io_error.kind() == std::io::ErrorKind::ConnectionReset {
                             eprintln!("Connection was reset by the remote host.");
-                            // Update the connection state to Disconnected
-                            self.set_state(WebSocketState::Disconnected);
+                            self.set_state(WebSocketState::Disconnected).await;
                         }
                     }
                 }

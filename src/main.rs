@@ -107,23 +107,20 @@ async fn main() {
     let channels_clone = channels_to_join.clone();
     // Spawn a task to manage connection, listening, and reconnection
     tokio::spawn(async move {
-        println!("Inside  tokio::spawn");
         let listener_clone = Arc::clone(&listener);
         loop {
-            println!("Inside Loop");
-            // Clone `listener_clone` for each loop iteration to avoid moving the original `Arc`
             let loop_listener_clone = Arc::clone(&listener_clone);
-            // Attempt to connect
             match loop_listener_clone.connect().await {
                 Ok(_) => println!("Successfully connected."),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    continue; // Retry connection
+                    continue;
                 }
             }
 
-            // Join channels after successful connection
+            // Join channels
+            // TODO! This will be pulled from config files.
             for channel in &channels_clone {
                 match listener_clone.join_channel(channel).await {
                     Ok(_) => println!("Successfully joined channel: {}", channel),
@@ -131,19 +128,12 @@ async fn main() {
                 }
             }
 
-            // Listen for messages or disconnection events
             while listener_clone.get_state() != WebSocketState::Disconnected {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
-
-            // If disconnected, wait before attempting to reconnect
-            //THIS IS NOT WORKING WHEN IT"S DISCONNECTED.
-            //Error receiving message: Io(Os { code: 10054, kind: ConnectionReset, message: "An existing connection was forcibly closed by the remote host." })
-            println!("Disconnected, attempting to reconnect...");
         }
     });
 
-    // Process received messages in another task
     let mut rx_clone = rx;
     tokio::spawn(async move {
         while let Some(message) = rx_clone.recv().await {
@@ -175,6 +165,7 @@ async fn main() {
             }
         }
     });
+
     // This line will keep the program running indefinitely until it's killed manually (e.g., Ctrl+C).
     pending::<()>().await;
 }
