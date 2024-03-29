@@ -35,14 +35,13 @@ impl MessageData {
 }
 
 pub fn parse_message(raw_message: &str) -> Option<MessageData> {
-    let meta_content_split = raw_message.split_once(" :")?;
-    let (meta, content) = meta_content_split;
-
-    let content_split = content.split_once("PRIVMSG #")?;
-    let channel_text_split = content_split.1.split_once(" :")?;
+    let meta_content_split = raw_message.split_once(":")?;
+    let (meta, account_and_message) = meta_content_split;
+    let content_split = account_and_message.split_once(" PRIVMSG #")?;
+    let message = content_split.1.split_once(" :")?;
     let (channel, text) = (
-        channel_text_split.0.to_string(),
-        channel_text_split.1.trim_end_matches("\r\n").to_string(),
+        message.0.to_string(),
+        message.1.trim_end_matches("\r\n").to_string(),
     );
     let mut message = MessageData {
         badge_info: None,
