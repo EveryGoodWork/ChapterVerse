@@ -53,7 +53,7 @@ async fn main() {
             // Join channels
             // TODO! This will be pulled from config files.
             for channel in &channels_clone {
-                match listener_clone.join_channel(channel).await {
+                match listener_clone.clone().join_channel(channel).await {
                     Ok(_) => println!("Successfully joined channel: {}", channel),
                     Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
                 }

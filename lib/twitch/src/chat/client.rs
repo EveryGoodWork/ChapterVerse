@@ -2,13 +2,15 @@ use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::MessageData;
 use async_trait::async_trait;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{pin_mut, SinkExt, StreamExt};
+use rand::Rng;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::time::{Duration, Instant};
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,22 +43,10 @@ pub struct WebSocket {
     message_notifier: Arc<Notify>,
     last_message_sent_at: Arc<Mutex<Instant>>,
 }
-impl Clone for WebSocket {
-    fn clone(&self) -> Self {
-        WebSocket {
-            websocket_state: Arc::clone(&self.websocket_state),
-            write: Arc::clone(&self.write),
-            channels: Arc::clone(&self.channels),
-            message_tx: self.message_tx.clone(),
-            message_queue: Arc::clone(&self.message_queue),
-            message_notifier: Arc::clone(&self.message_notifier),
-            last_message_sent_at: Arc::clone(&self.last_message_sent_at),
-        }
-    }
-}
+
 impl WebSocket {
-    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
-        let instance = Self {
+    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Arc<Self> {
+        let instance = Arc::new(Self {
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
@@ -64,19 +54,21 @@ impl WebSocket {
             message_queue: Arc::new(Mutex::new(VecDeque::new())),
             message_notifier: Arc::new(Notify::new()),
             last_message_sent_at: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(30))),
-        };
+        });
 
         // Start processing the message queue in a background task
-        let instance_clone = instance.clone();
+        let instance_clone = Arc::clone(&instance);
         spawn(async move {
             instance_clone.process_message_queue().await;
         });
 
         instance
     }
+
     pub fn get_state(&self) -> WebSocketState {
         WebSocketState::from(self.websocket_state.load(Ordering::SeqCst))
     }
+
     pub async fn set_state(&self, state: WebSocketState) {
         self.websocket_state.store(state as usize, Ordering::SeqCst);
         if state == WebSocketState::Disconnected {
@@ -85,6 +77,75 @@ impl WebSocket {
                 channel.state = ChannelState::NotConnected;
             }
         }
+    }
+
+    pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            match self.get_state() {
+                WebSocketState::NotConnected | WebSocketState::Disconnected => {
+                    println!("Attempting to connect or reconnect...");
+                    self.set_state(WebSocketState::Connecting).await;
+                }
+                WebSocketState::Connecting | WebSocketState::Connected => {
+                    println!("Already connecting or connected, no action taken.");
+                    return Ok(());
+                }
+                WebSocketState::Failed => {
+                    println!("Previous attempt failed, trying again...");
+                }
+            }
+            let url = "ws://irc-ws.chat.twitch.tv:80";
+            match connect_async(url).await {
+                Ok((ws_stream, _)) => {
+                    self.handle_connection_success(ws_stream).await;
+                    println!("WebSocket Connected and ready.");
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("Failed to connect: {:?}", e);
+                    self.set_state(WebSocketState::Disconnected).await;
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_connection_success(
+        self: Arc<Self>,
+        ws_stream: tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) {
+        // The implementation remains the same; ensure Arc<Self> is used for self parameter
+
+        // Ensure all method definitions that require shared state management or are called
+
+        let (mut write, read) = ws_stream.split();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        *self.write.lock().await = Some(tx.clone());
+
+        let justinfan = format!(
+            "NICK justinfan{}",
+            rand::thread_rng().gen_range(10000..=99999)
+        );
+        self.send_message(&justinfan).await;
+        //self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await;
+        //This is the minimal meta necessary to process messages for ChapterVerse.
+        self.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands")
+            .await;
+
+        tokio::spawn(async move {
+            while let Some(message) = rx.recv().await {
+                if let Err(e) = write.send(message).await {
+                    eprintln!("Error sending message: {:?}", e);
+                }
+            }
+        });
+        let listener_clone = self.clone(); // Add this line before spawning async tasks
+        tokio::spawn(async move {
+            listener_clone.listen_for_messages(read).await; // Use `listener_clone` here
+        });
     }
     pub async fn send_message(&self, message: &str) {
         let mut queue = self.message_queue.lock().await;
@@ -132,7 +193,7 @@ impl WebSocket {
         }
     }
 
-    pub async fn join_channel(&self, channel_name: &str) {
+    pub async fn join_channel(self: Arc<Self>, channel_name: &str) {
         {
             let mut channels = self.channels.lock().await;
             if !channels.iter().any(|c| c.name == channel_name) {
@@ -149,7 +210,7 @@ impl WebSocket {
         self.join_pending_channels().await;
     }
 
-    pub async fn join_pending_channels(&self) {
+    pub async fn join_pending_channels(self: Arc<Self>) {
         println!("WebSocketState: {:?}", self.get_state());
 
         if self.get_state() == WebSocketState::Connected {
@@ -157,7 +218,7 @@ impl WebSocket {
         } else {
             println!("WebSocket is not connected. Waiting to join channels.");
             tokio::spawn({
-                let ws_clone = self.clone();
+                let ws_clone = Arc::clone(&self);
                 async move {
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;

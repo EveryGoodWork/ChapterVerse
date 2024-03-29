@@ -1,14 +1,11 @@
 use super::client::{WebSocket, WebSocketState};
 use crate::common::message_data::MessageData;
-use futures_util::{stream::StreamExt, SinkExt};
-use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub struct Listener {
     pub message_tx: mpsc::UnboundedSender<MessageData>,
-    websocket: WebSocket,
+    websocket: Arc<WebSocket>,
 }
 impl Listener {
     pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
@@ -18,87 +15,19 @@ impl Listener {
         }
     }
     pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error + Send>> {
-        loop {
-            match self.websocket.get_state() {
-                WebSocketState::NotConnected | WebSocketState::Disconnected => {
-                    println!("Attempting to connect or reconnect...");
-                    self.websocket.set_state(WebSocketState::Connecting).await;
-                }
-                WebSocketState::Connecting | WebSocketState::Connected => {
-                    println!("Already connecting or connected, no action taken.");
-                    return Ok(());
-                }
-                WebSocketState::Failed => {
-                    println!("Previous attempt failed, trying again...");
-                    // TODO! Implement logic to handle a permanent failure state if necessary
-                }
-            }
-            let url = "ws://irc-ws.chat.twitch.tv:80";
-            match connect_async(url).await {
-                Ok((ws_stream, _)) => {
-                    let self_clone = self.clone();
-                    self_clone.handle_connection_success(ws_stream).await;
-                    println!("WebSocket Connected and ready.");
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("Failed to connect: {:?}", e);
-                    self.websocket.set_state(WebSocketState::Disconnected).await;
-
-                    // Continues the loop to retry connection
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                }
-            }
-        }
+        self.websocket
+            .clone()
+            .connect()
+            .await
+            .expect("Failed to connect");
         Ok(())
     }
-    async fn handle_connection_success(
-        self: Arc<Self>,
-        ws_stream: tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    ) {
-        let (mut write, read) = ws_stream.split();
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        *self.websocket.write.lock().await = Some(tx.clone());
-
-        let justinfan = format!(
-            "NICK justinfan{}",
-            rand::thread_rng().gen_range(10000..=99999)
-        );
-        self.websocket.send_message(&justinfan).await;
-        //self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await;
-        //This is the minimal meta necessary to process messages for ChapterVerse.
-        self.websocket
-            .send_message("CAP REQ :twitch.tv/tags twitch.tv/commands")
-            .await;
-
-        tokio::spawn(async move {
-            while let Some(message) = rx.recv().await {
-                if let Err(e) = write.send(message).await {
-                    eprintln!("Error sending message: {:?}", e);
-                }
-            }
-        });
-        let listener_clone = self.clone(); // Add this line before spawning async tasks
-        tokio::spawn(async move {
-            listener_clone.listen_for_messages(read).await; // Use `listener_clone` here
-        });
-    }
-    pub async fn join_channel(&self, channel_name: &str) -> Result<(), &'static str> {
+    pub async fn join_channel(self: Arc<Self>, channel_name: &str) -> Result<(), &'static str> {
         println!("join_channel {}", channel_name);
-        self.websocket.join_channel(channel_name).await;
+        self.websocket.clone().join_channel(channel_name).await;
         Ok(())
     }
     pub fn get_state(&self) -> WebSocketState {
         self.websocket.get_state()
-    }
-    async fn listen_for_messages(
-        &self,
-        read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
-            + Send
-            + 'static,
-    ) {
-        self.websocket.listen_for_messages(read).await;
     }
 }
