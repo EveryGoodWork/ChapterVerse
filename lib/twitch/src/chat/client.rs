@@ -3,7 +3,6 @@ use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::MessageData;
 use async_trait::async_trait;
 use futures_util::{pin_mut, SinkExt, StreamExt};
-use rand::Rng;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -35,6 +34,8 @@ impl From<usize> for WebSocketState {
 }
 
 pub struct WebSocket {
+    pub username: String,
+    pub oauth_token: Option<String>,
     pub websocket_state: Arc<AtomicUsize>,
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
     channels: Arc<Mutex<VecDeque<Channel>>>,
@@ -45,8 +46,15 @@ pub struct WebSocket {
 }
 
 impl WebSocket {
-    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Arc<Self> {
+    pub fn new(
+        message_tx: mpsc::UnboundedSender<MessageData>,
+        username: String,
+        oauth_token: impl Into<Option<String>>,
+    ) -> Arc<Self> {
+        //pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Arc<Self> {
         let instance = Arc::new(Self {
+            username,
+            oauth_token: oauth_token.into(),
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
@@ -125,11 +133,15 @@ impl WebSocket {
         let (tx, mut rx) = mpsc::unbounded_channel();
         *self.write.lock().await = Some(tx.clone());
 
-        let justinfan = format!(
-            "NICK justinfan{}",
-            rand::thread_rng().gen_range(10000..=99999)
-        );
-        self.send_message(&justinfan).await;
+        // Conditionally send OAuth token
+        if let Some(oauth) = &self.oauth_token {
+            let auth_message = format!("PASS {}", oauth);
+            self.send_message(&auth_message).await;
+        }
+
+        let nick_message = format!("NICK {}", self.username);
+        self.send_message(&nick_message).await;
+
         //self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await;
         //This is the minimal meta necessary to process messages for ChapterVerse.
         self.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands")
@@ -142,9 +154,9 @@ impl WebSocket {
                 }
             }
         });
-        let listener_clone = self.clone(); // Add this line before spawning async tasks
+        let listener_clone = self.clone();
         tokio::spawn(async move {
-            listener_clone.listen_for_messages(read).await; // Use `listener_clone` here
+            listener_clone.listen_for_messages(read).await;
         });
     }
     pub async fn send_message(&self, message: &str) {
@@ -154,7 +166,7 @@ impl WebSocket {
     }
 
     pub async fn process_message_queue(&self) {
-        let rate_limit_interval = Duration::from_secs(30) / 20; // Adjust based on the actual limit
+        let rate_limit_interval = Duration::from_secs(30) / 20;
         loop {
             let now = Instant::now();
             let sleep_duration = {

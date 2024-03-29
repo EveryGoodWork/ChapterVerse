@@ -70,26 +70,27 @@ async fn main() {
         while let Some(message) = rx_clone.recv().await {
             // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
             // TODO! this will pull from a user preference variable
-            let bible_name_to_use = "KJV";
-
-            if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
-                let bible: &Bible = &*bible_arc;
-                let scripture_message = match bible.get_scripture(&message.text) {
-                    Some(verse) => format!("{}", verse.scripture),
-                    None => "Verse not found".to_string(),
-                };
-                PrintCommand::Info.print_message(
-                    &format!(
-                        "Bible {}, {}",
-                        bible_name_to_use,
-                        message.display_name.unwrap_or_default()
-                    ),
-                    &scripture_message,
-                );
-            } else {
-                eprintln!("Bible named '{}' not found.", bible_name_to_use);
+            // TODO! Pull list of names to ignore from a configuraiton file
+            if message.display_name != Some("ChapterVerse") {
+                let bible_name_to_use = "KJV";
+                if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                    let bible: &Bible = &*bible_arc;
+                    let scripture_message = match bible.get_scripture(&message.text) {
+                        Some(verse) => format!("{}", verse.scripture),
+                        None => "Verse not found".to_string(),
+                    };
+                    PrintCommand::Info.print_message(
+                        &format!(
+                            "Bible {}, {}",
+                            bible_name_to_use,
+                            message.display_name.unwrap_or_default()
+                        ),
+                        &scripture_message,
+                    );
+                } else {
+                    eprintln!("Bible named '{}' not found.", bible_name_to_use);
+                }
             }
-
             match message.complete() {
                 Ok(duration) => println!("Message processing duration: {:?}", duration),
                 Err(e) => eprintln!("Error calculating duration: {}", e),

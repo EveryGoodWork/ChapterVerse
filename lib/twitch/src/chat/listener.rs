@@ -1,5 +1,6 @@
 use super::client::{WebSocket, WebSocketState};
 use crate::common::message_data::MessageData;
+use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -9,9 +10,10 @@ pub struct Listener {
 }
 impl Listener {
     pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
+        let username = format!("justinfan{}", rand::thread_rng().gen_range(10000..=99999));
         Listener {
             message_tx: message_tx.clone(),
-            websocket: WebSocket::new(message_tx),
+            websocket: WebSocket::new(message_tx, username, None),
         }
     }
     pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error + Send>> {
