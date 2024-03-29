@@ -1,15 +1,15 @@
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use futures_util::{pin_mut, StreamExt};
-use tokio::sync::{mpsc, Mutex};
-use tokio_tungstenite::tungstenite::Message;
-
 use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::MessageData;
+use async_trait::async_trait;
+use futures_util::{pin_mut, StreamExt};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use tokio::spawn;
+use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::time::{Duration, Instant};
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
@@ -37,6 +37,9 @@ pub struct WebSocket {
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
     channels: Arc<Mutex<VecDeque<Channel>>>,
     message_tx: Option<mpsc::UnboundedSender<MessageData>>,
+    message_queue: Arc<Mutex<VecDeque<String>>>,
+    message_notifier: Arc<Notify>,
+    last_message_sent_at: Arc<Mutex<Instant>>,
 }
 impl Clone for WebSocket {
     fn clone(&self) -> Self {
@@ -45,17 +48,31 @@ impl Clone for WebSocket {
             write: Arc::clone(&self.write),
             channels: Arc::clone(&self.channels),
             message_tx: self.message_tx.clone(),
+            message_queue: Arc::clone(&self.message_queue),
+            message_notifier: Arc::clone(&self.message_notifier),
+            last_message_sent_at: Arc::clone(&self.last_message_sent_at),
         }
     }
 }
 impl WebSocket {
     pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
-        Self {
+        let instance = Self {
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
             channels: Arc::new(Mutex::new(VecDeque::new())),
-        }
+            message_queue: Arc::new(Mutex::new(VecDeque::new())),
+            message_notifier: Arc::new(Notify::new()),
+            last_message_sent_at: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(30))),
+        };
+
+        // Start processing the message queue in a background task
+        let instance_clone = instance.clone();
+        spawn(async move {
+            instance_clone.process_message_queue().await;
+        });
+
+        instance
     }
     pub fn get_state(&self) -> WebSocketState {
         WebSocketState::from(self.websocket_state.load(Ordering::SeqCst))
@@ -69,15 +86,52 @@ impl WebSocket {
             }
         }
     }
-    pub async fn send_message(&self, message: &str) -> Result<(), &'static str> {
-        let msg = Message::Text(message.to_string());
-        let write_guard = self.write.lock().await;
-        if let Some(tx) = &*write_guard {
-            tx.send(msg).map_err(|_| "Failed to send message")
-        } else {
-            Err("Connection not initialized")
+    pub async fn send_message(&self, message: &str) {
+        let mut queue = self.message_queue.lock().await;
+        queue.push_back(message.to_string());
+        self.message_notifier.notify_one();
+    }
+
+    pub async fn process_message_queue(&self) {
+        let rate_limit_interval = Duration::from_secs(30) / 20; // Adjust based on the actual limit
+        loop {
+            let now = Instant::now();
+            let sleep_duration = {
+                let mut last_sent = self.last_message_sent_at.lock().await;
+                if now - *last_sent >= rate_limit_interval {
+                    let mut queue = self.message_queue.lock().await;
+                    if let Some(message) = queue.pop_front() {
+                        let msg = Message::Text(message.to_string());
+                        let write = Arc::clone(&self.write);
+                        tokio::spawn(async move {
+                            let write_guard = write.lock().await;
+                            if let Some(tx) = &*write_guard {
+                                if let Err(e) = tx.send(msg) {
+                                    eprintln!("Failed to send message: {}", e);
+                                }
+                            } else {
+                                eprintln!("Connection not initialized");
+                            }
+                        });
+                        *last_sent = now;
+                        None
+                    } else {
+                        drop(last_sent);
+                        drop(queue);
+                        self.message_notifier.notified().await;
+                        None
+                    }
+                } else {
+                    Some(rate_limit_interval - (now - *last_sent))
+                }
+            };
+            if let Some(duration) = sleep_duration {
+                tokio::time::sleep(duration).await;
+                //println!("---Slept for rate limit, rechecking message queue");
+            }
         }
     }
+
     pub async fn join_channel(&self, channel_name: &str) {
         {
             let mut channels = self.channels.lock().await;
@@ -90,7 +144,7 @@ impl WebSocket {
             } else {
                 println!("Channel already exists: {}", channel_name);
             }
-            println!("join_channel channels queue size: {}", channels.len()); // Print the size of the channels queue
+            println!("join_channel channels queue size: {}", channels.len());
         }
         self.join_pending_channels().await;
     }
@@ -99,11 +153,9 @@ impl WebSocket {
         println!("WebSocketState: {:?}", self.get_state());
 
         if self.get_state() == WebSocketState::Connected {
-            // Proceed with joining channels if already connected
             self.process_channel_joining().await;
         } else {
             println!("WebSocket is not connected. Waiting to join channels.");
-            // Spawn a new asynchronous task to wait and retry
             tokio::spawn({
                 let ws_clone = self.clone();
                 async move {
@@ -126,12 +178,11 @@ impl WebSocket {
 
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
-                if let Err(e) = self.send_message(&format!("JOIN #{}", channel.name)).await {
-                    println!("Error joining channel {}: {}", channel.name, e);
-                } else {
-                    println!("Joining channel: {}", channel.name);
-                    channel.state = ChannelState::Connecting; // Update the state
-                }
+                self.send_message(&format!("JOIN #{}", channel.name)).await;
+                channel.state = ChannelState::Connected;
+                println!("Joining channel: {}", channel.name);
+                // TODO!  This should be a Connecting state that is then updated when a message is recieved that it's connected to the channel.
+                //channel.state = ChannelState::Connecting;
             } else {
                 println!("Already joined channel: {}", channel.name);
             }
@@ -146,11 +197,10 @@ impl WebSocket {
         while let Some(message) = read.next().await {
             match message {
                 Ok(Message::Text(text)) => {
-                    println!("Received message: {}", text);
                     if text.starts_with("PING") {
                         println!("Received PING, sending: PONG");
-                        self.send_message(&text.replace("PING", "PONG")).await.ok();
-                    } else if text.contains("PRIVMSG") {
+                        self.send_message(&text.replace("PING", "PONG")).await;
+                    } else if text.contains(" PRIVMSG #") {
                         if let Some(parsed_message) = common::message_data::parse_message(&text) {
                             if let Some(sender) = &self.message_tx {
                                 if let Err(e) = sender.send(parsed_message) {
