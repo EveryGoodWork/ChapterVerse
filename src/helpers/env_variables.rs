@@ -6,7 +6,7 @@ use std::{env, fs};
 
 pub(crate) fn get_env_variable(env_var_key: &str, default_value: &str) -> String {
     let env_file_path = ".env";
-
+    // TODO!  BUG  There is a bug that if anything is missing it will overwrite with a single value.
     // Attempt to load environment variables from .env file
     if dotenv().is_err() {
         match File::create(env_file_path) {

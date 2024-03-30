@@ -125,15 +125,10 @@ impl WebSocket {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     ) {
-        // The implementation remains the same; ensure Arc<Self> is used for self parameter
-
-        // Ensure all method definitions that require shared state management or are called
-
         let (mut write, read) = ws_stream.split();
         let (tx, mut rx) = mpsc::unbounded_channel();
         *self.write.lock().await = Some(tx.clone());
 
-        // Conditionally send OAuth token
         if let Some(oauth) = &self.oauth_token {
             let auth_message = format!("PASS {}", oauth);
             self.send_message(&auth_message).await;
@@ -270,6 +265,7 @@ impl WebSocket {
         while let Some(message) = read.next().await {
             match message {
                 Ok(Message::Text(text)) => {
+                    println!("Message RAW: {}", text);
                     if text.starts_with("PING") {
                         println!("Received PING, sending: PONG");
                         self.send_message(&text.replace("PING", "PONG")).await;

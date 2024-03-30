@@ -7,12 +7,17 @@ use std::env;
 use std::sync::Arc;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
+use twitch::chat::Replier;
 use twitch::common::message_data::MessageData;
 
+use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
 
 mod helpers;
-
+struct ReplyRequest {
+    channel_name: String,
+    message: String,
+}
 #[tokio::main]
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -31,18 +36,40 @@ async fn main() {
     let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
 
     let (tx, rx) = mpsc::unbounded_channel::<MessageData>();
+    let (txr, rxr) = mpsc::unbounded_channel::<MessageData>();
     println!("Trying to connect");
 
     let listener = Arc::new(Listener::new(tx));
+
+    let username = get_env_variable("USERNAME", "twitchusername");
+    let oauth = get_env_variable("OAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
+
+    let replier = Arc::new(Replier::new(txr, &username, &oauth));
     // Assuming `channels_to_join` is cloned or moved into the async block appropriately
     let channels_clone = channels_to_join.clone();
     // Spawn a task to manage connection, listening, and reconnection
     tokio::spawn(async move {
         let listener_clone = Arc::clone(&listener);
+        let replier_clone = Arc::clone(&replier);
         loop {
             let loop_listener_clone = Arc::clone(&listener_clone);
             match loop_listener_clone.connect().await {
                 Ok(_) => println!("Successfully connected."),
+                Err(e) => {
+                    eprintln!("Failed to connect: {:?}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    continue;
+                }
+            }
+            let loop_replier_clone = Arc::clone(&replier_clone);
+            match loop_replier_clone.clone().connect().await {
+                Ok(_) => {
+                    println!("Successfully connected.");
+                    // TODO! This is just to test this out.
+                    let _ = loop_replier_clone
+                        .send_message("missionarygamer", "Jesus is Lord!")
+                        .await;
+                }
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -66,12 +93,15 @@ async fn main() {
     });
 
     let mut rx_clone = rx;
+
     tokio::spawn(async move {
         while let Some(message) = rx_clone.recv().await {
             // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
             // TODO! this will pull from a user preference variable
             // TODO! Pull list of names to ignore from a configuraiton file
-            if message.display_name != Some("ChapterVerse") {
+            if message.display_name != Some("ChapterVerse")
+                && message.display_name != Some("EveryGoodWork")
+            {
                 let bible_name_to_use = "KJV";
                 if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
                     let bible: &Bible = &*bible_arc;
@@ -87,6 +117,7 @@ async fn main() {
                         ),
                         &scripture_message,
                     );
+                    println!("Send Message Here");
                 } else {
                     eprintln!("Bible named '{}' not found.", bible_name_to_use);
                 }
