@@ -14,10 +14,6 @@ use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
 
 mod helpers;
-struct ReplyRequest {
-    channel_name: String,
-    message: String,
-}
 #[tokio::main]
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -35,22 +31,57 @@ async fn main() {
     // TODO:  Create a config files to pull these from, each channel gets it's own file.
     let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
 
-    let (tx, rx) = mpsc::unbounded_channel::<MessageData>();
-    let (txr, rxr) = mpsc::unbounded_channel::<MessageData>();
+    let (txl, rxl) = mpsc::unbounded_channel::<MessageData>();
+    // TODO! This needs to be addressed as the replier doesn't really use this channel, but will for account messages.
+    let (_txr, _rxr) = mpsc::unbounded_channel::<MessageData>();
+
+    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
+    let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
+
     println!("Trying to connect");
 
-    let listener = Arc::new(Listener::new(tx));
+    let listener = Arc::new(Listener::new(txl));
 
     let username = get_env_variable("USERNAME", "twitchusername");
     let oauth = get_env_variable("OAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
 
-    let replier = Arc::new(Replier::new(txr, &username, &oauth));
+    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
+    let txreplier_clone = txreplier.clone();
+    let mut rxreplier_clone = rxreplier;
+
+    let replier = Arc::new(Replier::new(_txr, &username, &oauth));
     // Assuming `channels_to_join` is cloned or moved into the async block appropriately
     let channels_clone = channels_to_join.clone();
+
+    //THIS IS THE CODE TO REPLY
+    tokio::spawn(async move {
+        let replier_clone = Arc::clone(&replier);
+        let loop_replier_clone = Arc::clone(&replier);
+        match replier_clone.clone().connect().await {
+            Ok(_) => {
+                println!("Successfully connected.");
+                // TODO! This is an initial message to show it's connected to the channel.
+                let _ = replier_clone
+                    .send_message("missionarygamer", "Jesus is Lord!")
+                    .await;
+            }
+            Err(e) => {
+                eprintln!("Failed to connect: {:?}", e);
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        }
+        while let Some(message) = rxreplier_clone.recv().await {
+            let _ = loop_replier_clone
+                .clone()
+                // TODO! Update MessageData with a reply_text field
+                .send_message(&message.channel, &message.text)
+                .await;
+        }
+    });
+
     // Spawn a task to manage connection, listening, and reconnection
     tokio::spawn(async move {
         let listener_clone = Arc::clone(&listener);
-        let replier_clone = Arc::clone(&replier);
         loop {
             let loop_listener_clone = Arc::clone(&listener_clone);
             match loop_listener_clone.connect().await {
@@ -61,21 +92,7 @@ async fn main() {
                     continue;
                 }
             }
-            let loop_replier_clone = Arc::clone(&replier_clone);
-            match loop_replier_clone.clone().connect().await {
-                Ok(_) => {
-                    println!("Successfully connected.");
-                    // TODO! This is just to test this out.
-                    let _ = loop_replier_clone
-                        .send_message("missionarygamer", "Jesus is Lord!")
-                        .await;
-                }
-                Err(e) => {
-                    eprintln!("Failed to connect: {:?}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            }
+            // let loop_replier_clone = Arc::clone(&replier_clone);
 
             // Join channels
             // TODO! This will be pulled from config files.
@@ -92,8 +109,9 @@ async fn main() {
         }
     });
 
-    let mut rx_clone = rx;
+    let mut rx_clone = rxl;
 
+    //This Listens for incoming messages.
     tokio::spawn(async move {
         while let Some(message) = rx_clone.recv().await {
             // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
@@ -102,6 +120,7 @@ async fn main() {
             if message.display_name != Some("ChapterVerse")
                 && message.display_name != Some("EveryGoodWork")
             {
+                println!("FUllMessage: {:?}", message);
                 let bible_name_to_use = "KJV";
                 if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
                     let bible: &Bible = &*bible_arc;
@@ -118,6 +137,12 @@ async fn main() {
                         &scripture_message,
                     );
                     println!("Send Message Here");
+                    // Assuming `message` is an instance of `MessageData`
+                    let mut reply_message_clone = message.clone();
+                    reply_message_clone.text = scripture_message;
+                    if let Err(e) = txreplier_clone.send(reply_message_clone) {
+                        eprintln!("Failed to send cloned message: {}", e);
+                    }
                 } else {
                     eprintln!("Bible named '{}' not found.", bible_name_to_use);
                 }

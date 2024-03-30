@@ -3,8 +3,7 @@ use crate::common::message_data::MessageData;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// NEED TO TRAP FOR THIS ERROR:
-/// Message RAW: @msg-id=msg_requires_verified_phone_number :tmi.twitch.tv NOTICE #missionarygamer :A verified phone number is required to chat in this channel. Please visit https://www.twitch.tv/settings/security to verify your phone number.
+/// TODO!  TRAP FOR THIS ERROR: @msg-id=msg_requires_verified_phone_number :tmi.twitch.tv NOTICE #missionarygamer :A verified phone number is required to chat in this channel. Please visit https://www.twitch.tv/settings/security to verify your phone number.
 pub struct Replier {
     pub message_tx: mpsc::UnboundedSender<MessageData>,
     websocket: Arc<WebSocket>,
@@ -42,8 +41,7 @@ impl Replier {
         channel_name: &str,
         message_text: &str,
     ) -> Result<(), &'static str> {
-        println!("---SendMessage {}", message_text);
-        self.websocket.clone().join_channel(channel_name).await;
+        // println!("---DEBUG SendMessage {}", message_text);
         let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
         self.websocket.clone().send_message(&message).await;
         Ok(())

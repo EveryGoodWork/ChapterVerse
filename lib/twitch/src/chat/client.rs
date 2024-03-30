@@ -195,7 +195,7 @@ impl WebSocket {
             };
             if let Some(duration) = sleep_duration {
                 tokio::time::sleep(duration).await;
-                //println!("---Slept for rate limit, rechecking message queue");
+                println!("---Slept for rate limit, rechecking message queue");
             }
         }
     }
@@ -204,6 +204,7 @@ impl WebSocket {
         {
             let mut channels = self.channels.lock().await;
             if !channels.iter().any(|c| c.name == channel_name) {
+                println!("join_channel: {}", channel_name);
                 let new_channel = Channel {
                     name: channel_name.to_string(),
                     state: ChannelState::NotConnected,
