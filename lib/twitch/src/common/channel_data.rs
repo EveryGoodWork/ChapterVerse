@@ -5,7 +5,7 @@ pub enum ChannelState {
     Connected,
     Invalid,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Channel {
     pub(crate) name: String,
     pub state: ChannelState,

@@ -15,7 +15,6 @@ members = [
 [dependencies]
 bible = { path = "lib/bible" }
 twitch = { path = "lib/twitch" }
-async-trait = "^0.1.77"
 crossterm = "^0.27.0"
 
 dotenv = "^0.15.0"
@@ -25,6 +24,10 @@ strum_macros = "^0.26.1"
 tokio = "^1.36.0"
 lazy_static = "1.4.0"
 regex = "1.10.3"
+async-trait = "0.1.79"
+thiserror = "1.0.58"
+
+futures = "0.3"
 
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
