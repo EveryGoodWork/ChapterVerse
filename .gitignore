@@ -15,3 +15,5 @@ Cargo.lock
 
 # Exclude environment variables file
 .env
+
+.vscode/launch.json
