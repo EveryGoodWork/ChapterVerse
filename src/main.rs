@@ -5,6 +5,8 @@ use tokio::sync::mpsc;
 use futures::future::pending;
 use std::env;
 use std::sync::Arc;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
@@ -42,14 +44,14 @@ async fn main() {
 
     let listener = Arc::new(Listener::new(txl));
 
-    let username = get_env_variable("USERNAME", "twitchusername");
-    let oauth = get_env_variable("OAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
+    let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
+    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
 
     //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
     let txreplier_clone = txreplier.clone();
     let mut rxreplier_clone = rxreplier;
 
-    let replier = Arc::new(Replier::new(_txr, &username, &oauth));
+    let replier = Arc::new(Replier::new(_txr, &twitch_account, &twitch_oauth));
     // Assuming `channels_to_join` is cloned or moved into the async block appropriately
     let channels_clone = channels_to_join.clone();
 
@@ -62,8 +64,33 @@ async fn main() {
                 println!("Successfully connected.");
                 // TODO! This is an initial message to show it's connected to the channel.
                 let _ = replier_clone
-                    .send_message("missionarygamer", "Jesus is Lord!")
+                    .clone()
+                    .send_message("chapterverse", "Jesus is Lord!")
                     .await;
+                let _ = replier_clone
+                    .clone()
+                    .send_message(
+                        "chapterverse",
+                        format!(
+                            "ChapterVerse Version: {} - ONLINE",
+                            env!("CARGO_PKG_VERSION")
+                        )
+                        .as_str(),
+                    )
+                    .await;
+
+                // Test Loop to send 100 messages with a counter and the current time.
+
+                for count in 1..=10 {
+                    if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                        let timestamp = now.as_secs(); // Seconds since UNIX epoch
+                        let message = format!("Count: {} - Timestamp: {}", count, timestamp);
+                        let _ = replier_clone
+                            .clone()
+                            .send_message("chapterverse", &message)
+                            .await;
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Failed to connect: {:?}", e);
