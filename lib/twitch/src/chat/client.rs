@@ -2,15 +2,28 @@ use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::MessageData;
 use async_trait::async_trait;
+use futures_util::stream::SplitSink;
 use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::spawn;
+use std::thread::{sleep, spawn};
 use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::time;
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
+
+use futures_util::stream::SplitStream;
+use tokio::net::TcpStream;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio_tungstenite::tungstenite::protocol::Message as WebSocketMessage;
+use tokio_tungstenite::MaybeTlsStream;
+use tokio_tungstenite::WebSocketStream;
+
+// Added for rate limiting
+const BUCKET_CAPACITY: usize = 100; // Maximum messages that can be sent before throttling
+const LEAK_RATE: Duration = Duration::from_millis(1500); // 1 message per second
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
@@ -43,6 +56,15 @@ pub struct WebSocket {
     message_queue: Arc<Mutex<VecDeque<String>>>,
     message_notifier: Arc<Notify>,
     last_message_sent_at: Arc<Mutex<Instant>>,
+    //New fields
+    twitch_sink:
+        Arc<Mutex<Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, WebSocketMessage>>>>,
+    twitch_stream: Arc<Mutex<Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>>,
+    twitch_channel_transmitter: Arc<Mutex<Option<UnboundedSender<WebSocketMessage>>>>,
+    twitch_channel_reciever: Arc<Mutex<Option<UnboundedReceiver<WebSocketMessage>>>>,
+
+    message_bucket: Arc<Mutex<VecDeque<String>>>,
+    message_bucket_notifier: Arc<Notify>,
 }
 
 impl WebSocket {
@@ -51,25 +73,25 @@ impl WebSocket {
         username: String,
         oauth_token: impl Into<Option<String>>,
     ) -> Arc<Self> {
-        //pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Arc<Self> {
         let instance = Arc::new(Self {
             username,
             oauth_token: oauth_token.into(),
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
+            twitch_sink: Arc::new(Mutex::new(None)),
+            twitch_stream: Arc::new(Mutex::new(None)),
+            twitch_channel_transmitter: Arc::new(Mutex::new(None)),
+            twitch_channel_reciever: Arc::new(Mutex::new(None)),
+
             channels: Arc::new(Mutex::new(VecDeque::new())),
             message_queue: Arc::new(Mutex::new(VecDeque::new())),
             message_notifier: Arc::new(Notify::new()),
             last_message_sent_at: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(30))),
-        });
 
-        // Start processing the message queue in a background task
-        let instance_clone = Arc::clone(&instance);
-        spawn(async move {
-            instance_clone.process_message_queue().await;
+            message_bucket: Arc::new(Mutex::new(VecDeque::new())),
+            message_bucket_notifier: Arc::new(Notify::new()),
         });
-
         instance
     }
 
@@ -87,11 +109,20 @@ impl WebSocket {
         }
     }
 
+    fn extract_channel(message: &Message) -> Option<&str> {
+        if let Message::Text(ref text) = message {
+            let (_before, after) = text.split_once("PRIVMSG #")?;
+            after.split_once(' ').map(|(channel, _)| channel)
+        } else {
+            None
+        }
+    }
+
     pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match self.get_state() {
                 WebSocketState::NotConnected | WebSocketState::Disconnected => {
-                    println!("Attempting to connect or reconnect...");
+                    println!("Attempting to connect...");
                     self.set_state(WebSocketState::Connecting).await;
                 }
                 WebSocketState::Connecting | WebSocketState::Connected => {
@@ -106,7 +137,7 @@ impl WebSocket {
             match connect_async(url).await {
                 Ok((ws_stream, _)) => {
                     self.handle_connection_success(ws_stream).await;
-                    println!("WebSocket Connected and ready.");
+                    println!("---WebSocket Connected and ready.");
                     break;
                 }
                 Err(e) => {
@@ -125,78 +156,114 @@ impl WebSocket {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     ) {
-        let (mut write, read) = ws_stream.split();
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        *self.write.lock().await = Some(tx.clone());
+        let (split_sink, split_stream) = ws_stream.split();
+        //TODO! Why are these created here.
+        let (twitch_transmitter, twitch_reciever) = mpsc::unbounded_channel();
 
-        if let Some(oauth) = &self.oauth_token {
-            let auth_message = format!("PASS {}", oauth);
-            self.send_message(&auth_message).await;
-        }
+        *self.twitch_sink.lock().await = Some(split_sink);
+        *self.twitch_stream.lock().await = Some(split_stream);
+        *self.twitch_channel_transmitter.lock().await = Some(twitch_transmitter.clone());
+        *self.twitch_channel_reciever.lock().await = Some(twitch_reciever);
 
-        let nick_message = format!("NICK {}", self.username);
-        self.send_message(&nick_message).await;
-
-        //self.websocket.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership twitch.tv/subscriptions twitch.tv/bits twitch.tv/badges").await;
-        //This is the minimal meta necessary to process messages for ChapterVerse.
-        self.send_message("CAP REQ :twitch.tv/tags twitch.tv/commands")
-            .await;
-
-        tokio::spawn(async move {
-            while let Some(message) = rx.recv().await {
-                if let Err(e) = write.send(message).await {
-                    eprintln!("Error sending message: {:?}", e);
+        self.clone().start_leaky_bucket_handler();
+        //Start the Channel for sending messages to twitch.
+        tokio::spawn({
+            let self_clone = self.clone();
+            async move {
+                while let Some(twitch_channel_read) =
+                    self_clone.twitch_channel_reciever.lock().await.as_mut()
+                {
+                    while let Some(message) = twitch_channel_read.recv().await {
+                        let mut sink = self_clone.twitch_sink.lock().await;
+                        if let Some(sink) = sink.as_mut() {
+                            if let Err(e) = sink.send(message).await {
+                                eprintln!("Error sending message: {:?}", e);
+                            }
+                        }
+                    }
                 }
             }
         });
+
+        //Start the Channel for recieving messages from twitch.
+        // Corrected approach: Process the stream where it is accessible.
         let listener_clone = self.clone();
         tokio::spawn(async move {
-            listener_clone.listen_for_messages(read).await;
+            let mut twitch_stream_option = listener_clone.twitch_stream.lock().await;
+            if let Some(twitch_stream) = twitch_stream_option.as_mut() {
+                listener_clone.listen_for_messages(twitch_stream).await;
+            }
         });
-    }
-    pub async fn send_message(&self, message: &str) {
-        let mut queue = self.message_queue.lock().await;
-        queue.push_back(message.to_string());
-        self.message_notifier.notify_one();
+
+        if let Some(oauth) = &self.oauth_token {
+            if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
+                twitch_channel_write
+                    .send(format!("PASS {}", oauth).into())
+                    .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
+            }
+        }
+
+        if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
+            twitch_channel_write
+                .send(format!("NICK {}", self.username).into())
+                .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
+            twitch_channel_write
+                .send("CAP REQ :twitch.tv/tags twitch.tv/commands".into())
+                .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
+        }
     }
 
-    pub async fn process_message_queue(&self) {
-        let rate_limit_interval = Duration::from_secs(30) / 20;
-        loop {
-            let now = Instant::now();
-            let sleep_duration = {
-                let mut last_sent = self.last_message_sent_at.lock().await;
-                if now - *last_sent >= rate_limit_interval {
-                    let mut queue = self.message_queue.lock().await;
-                    if let Some(message) = queue.pop_front() {
-                        let msg = Message::Text(message.to_string());
-                        let write = Arc::clone(&self.write);
-                        tokio::spawn(async move {
-                            let write_guard = write.lock().await;
-                            if let Some(tx) = &*write_guard {
-                                if let Err(e) = tx.send(msg) {
-                                    eprintln!("Failed to send message: {}", e);
-                                }
-                            } else {
-                                eprintln!("Connection not initialized");
-                            }
-                        });
-                        *last_sent = now;
-                        None
-                    } else {
-                        drop(last_sent);
-                        drop(queue);
-                        self.message_notifier.notified().await;
-                        None
+    pub async fn send_message(&self, message: MessageData) {
+        let twitch_message = format!("PRIVMSG #{} :{}\r\n", message.channel, message.text);
+        println!("twitch_message: {}", twitch_message);
+
+        let mut message_bucket = self.message_bucket.lock().await;
+        if message_bucket.len() < BUCKET_CAPACITY {
+            message_bucket.push_back(twitch_message.clone());
+            drop(message_bucket); // Release lock immediately after operation
+
+            // Notify the bucket handler task
+            self.message_bucket_notifier.notify_one();
+        } else {
+            println!("Bucket full, message throttled: {}", message.text);
+        }
+    }
+
+    pub fn start_leaky_bucket_handler(self: Arc<Self>) {
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            loop {
+                // Instead of waiting for a notification for each message, we enter a loop
+                // that continuously checks for messages and processes them at the defined leak rate.
+                let mut message_bucket = self_clone.message_bucket.lock().await;
+                if let Some(message) = message_bucket.pop_front() {
+                    drop(message_bucket); // Release lock before sending
+                    if let Some(transmitter) = &*self_clone.twitch_channel_transmitter.lock().await
+                    {
+                        println!("start_leaky_bucket_handler: {}", message);
+                        transmitter
+                            .send(message.into())
+                            .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
                     }
+                    tokio::time::sleep(LEAK_RATE).await; // Wait for the leak rate before checking again
                 } else {
-                    Some(rate_limit_interval - (now - *last_sent))
+                    drop(message_bucket); // Release lock if there's nothing to process
+                                          // Wait for a notification that a new message has been added
+                                          // This prevents the loop from continuously running when there are no messages to process
+                    self_clone.message_bucket_notifier.notified().await;
                 }
-            };
-            if let Some(duration) = sleep_duration {
-                tokio::time::sleep(duration).await;
-                println!("---Slept for rate limit, rechecking message queue");
             }
+        });
+    }
+
+    pub async fn send_command(&self, command_text: &str) {
+        println!("send_command {}", command_text);
+
+        // Accessing the `twitch_channel_write` field properly with lock.
+        if let Some(transmitter_locked) = &*self.twitch_channel_transmitter.lock().await {
+            transmitter_locked
+                .send(command_text.into())
+                .unwrap_or_else(|e| eprintln!("Error sending command message: {:?}", e));
         }
     }
 
@@ -204,7 +271,6 @@ impl WebSocket {
         {
             let mut channels = self.channels.lock().await;
             if !channels.iter().any(|c| c.name == channel_name) {
-                println!("join_channel: {}", channel_name);
                 let new_channel = Channel {
                     name: channel_name.to_string(),
                     state: ChannelState::NotConnected,
@@ -224,7 +290,7 @@ impl WebSocket {
         if self.get_state() == WebSocketState::Connected {
             self.process_channel_joining().await;
         } else {
-            println!("WebSocket is not connected. Waiting to join channels.");
+            println!("WebSocket is not connected. Waiting to join channels....");
             tokio::spawn({
                 let ws_clone = Arc::clone(&self);
                 async move {
@@ -243,15 +309,15 @@ impl WebSocket {
 
     async fn process_channel_joining(&self) {
         let mut channels = self.channels.lock().await;
-        println!("Current channels queue size: {}", channels.len()); // Print the size of the channels queue
+        println!("Current channels queue size: {}", channels.len());
 
+        // TODO!  Joining the channel is the next step to look at.
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
-                self.send_message(&format!("JOIN #{}", channel.name)).await;
-                channel.state = ChannelState::Connected;
+                self.send_command(&format!("JOIN #{}", channel.name.to_lowercase()))
+                    .await;
                 println!("Joining channel: {}", channel.name);
-                // TODO!  This should be a Connecting state that is then updated when a message is recieved that it's connected to the channel.
-                //channel.state = ChannelState::Connecting;
+                channel.state = ChannelState::Connected;
             } else {
                 println!("Already joined channel: {}", channel.name);
             }
@@ -262,15 +328,15 @@ impl WebSocket {
         &self,
         read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
     ) {
-        pin_mut!(read); // Pin the stream to the stack
+        pin_mut!(read);
         while let Some(message) = read.next().await {
+            println!("*Message RAW: {:?}", message);
             match message {
                 Ok(Message::Text(text)) => {
-                    println!("Message RAW: {}", text);
                     if text.starts_with("PING") {
                         println!("Received PING, sending: PONG");
-                        self.send_message(&text.replace("PING", "PONG")).await;
-                    } else if text.contains(" PRIVMSG #") {
+                        self.send_command(&text.replace("PING", "PONG")).await;
+                    } else if text.contains("PRIVMSG #") {
                         if let Some(parsed_message) = common::message_data::parse_message(&text) {
                             if let Some(sender) = &self.message_tx {
                                 if let Err(e) = sender.send(parsed_message) {
@@ -297,6 +363,7 @@ impl WebSocket {
         }
     }
 }
+
 #[async_trait]
 pub trait Client {
     async fn connect(&self) -> Result<(), Box<dyn std::error::Error>>;

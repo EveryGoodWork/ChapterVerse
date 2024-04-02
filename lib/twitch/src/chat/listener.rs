@@ -25,7 +25,6 @@ impl Listener {
         Ok(())
     }
     pub async fn join_channel(self: Arc<Self>, channel_name: &str) -> Result<(), &'static str> {
-        println!("join_channel {}", channel_name);
         self.websocket.clone().join_channel(channel_name).await;
         Ok(())
     }

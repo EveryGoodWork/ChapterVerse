@@ -1,21 +1,17 @@
 use super::client::{WebSocket, WebSocketState};
-use crate::common::message_data::MessageData;
+use crate::common::message_data::{parse_message, MessageData};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// TODO!  TRAP FOR THIS ERROR: @msg-id=msg_requires_verified_phone_number :tmi.twitch.tv NOTICE #missionarygamer :A verified phone number is required to chat in this channel. Please visit https://www.twitch.tv/settings/security to verify your phone number.
 pub struct Replier {
-    pub message_tx: mpsc::UnboundedSender<MessageData>,
     websocket: Arc<WebSocket>,
 }
 impl Replier {
-    pub fn new(
-        message_tx: mpsc::UnboundedSender<MessageData>,
-        username: &str,
-        oauth: &str,
-    ) -> Self {
+    pub fn new(username: &str, oauth: &str) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel::<MessageData>();
         Replier {
-            message_tx: message_tx.clone(),
+            //message_tx: message_tx.clone(),
             websocket: WebSocket::new(message_tx, username.to_string(), oauth.to_string()),
         }
     }
@@ -41,9 +37,43 @@ impl Replier {
         channel_name: &str,
         message_text: &str,
     ) -> Result<(), &'static str> {
-        // println!("---DEBUG SendMessage {}", message_text);
-        let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
-        self.websocket.clone().send_message(&message).await;
+        // Directly creating the MessageData object with provided values
+        let message_data = MessageData {
+            channel: channel_name.to_string(),
+            text: message_text.to_string(),
+            raw_message: format!("PRIVMSG #{} :{}\r\n", channel_name, message_text),
+            ..MessageData::default()
+        };
+
+        println!("---DEBUG SendMessage: {:?}", message_data);
+        self.websocket.clone().send_message(message_data).await;
+
+        Ok(())
+    }
+    //TODO! Fix thsi for sending Commands.
+    // pub async fn send_command(
+    //     self: Arc<Self>,
+    //     channel_name: &str,
+    //     message_text: &str,
+    // ) -> Result<(), &'static str> {
+    //     // println!("---DEBUG SendMessage {}", message_text);
+    //     let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
+    //     if let Some(message_data) = parse_message(&message) {
+    //         self.websocket.clone().send_message(message_data).await;
+    //     }
+    //     Ok(())
+    // }
+    //TODO !Fix this for sending replies.
+    pub async fn send_reply(
+        self: Arc<Self>,
+        message_data: MessageData,
+        message_text: &str,
+    ) -> Result<(), &'static str> {
+        // // println!("---DEBUG SendMessage {}", message_text);
+        // let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
+        // if let Some(message_data) = parse_message(&message) {
+        //     self.websocket.clone().send_message(message_data).await;
+        // }
         Ok(())
     }
 }
