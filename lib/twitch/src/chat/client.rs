@@ -334,14 +334,15 @@ impl WebSocket {
     ) {
         pin_mut!(read);
         while let Some(message) = read.next().await {
-            println!("*Message RAW: {:?}", message);
+            // println!("*Message RAW: {:?}", message);
             match message {
                 Ok(Message::Text(text)) => {
                     if text.starts_with("PING") {
                         println!("Received PING, sending: PONG");
                         self.send_command(&text.replace("PING", "PONG")).await;
                     } else if text.contains("PRIVMSG #") {
-                        if let Some(parsed_message) = common::message_data::parse_message(&text) {
+                        if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+                        {
                             if let Some(sender) = &self.message_tx {
                                 if let Err(e) = sender.send(parsed_message) {
                                     eprintln!("Failed to send message to main.rs: {}", e);
@@ -349,7 +350,7 @@ impl WebSocket {
                             }
                         }
                     } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
-                        println!(":Welcome, GLHF!");
+                        println!("{} {:?}", ":Welcome, GLHF! ", self.username);
                         self.set_state(WebSocketState::Connected).await;
                     }
                 }

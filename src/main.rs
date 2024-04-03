@@ -5,8 +5,6 @@ use tokio::sync::mpsc;
 use futures::future::pending;
 use std::env;
 use std::sync::Arc;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
@@ -31,62 +29,80 @@ async fn main() {
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
-    //This is the Transmit and reciever thread safe channels
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
     let twitch_listener = Arc::new(Listener::new(listener_transmitter));
-    // TODO! This needs to be addressed as the replier doesn't really use this channel, but will for account messages.
-    //let (txr, rxr) = mpsc::unbounded_channel::<MessageData>();
-
-    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
     let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
-
-    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
     let txreplier_clone = txreplier.clone();
     let mut rxreplier_clone = rxreplier;
 
     // TODO!  Create a config files to pull these from, each channel gets it's own file.
     let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
 
-    //This Listens for incoming messages.
     tokio::spawn(async move {
+        //This Listens for incoming Twitch messages.
         while let Some(message) = listener_reciever.recv().await {
-            println!(
-                "---listener_reciever_channel.recv().await: {}",
-                message.raw_message
-            );
-            println!("Message Type:  {:?}", message.classification);
-            match message.classification {
-                Type::None => (),
-                Type::Scripture => {
-                    let bible_name_to_use = "KJV";
-                    if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
-                        let bible: &Bible = &*bible_arc;
-                        let scripture_message = match bible.get_scripture(&message.text) {
-                            Some(verse) => format!("{}", verse.scripture),
-                            None => "Verse not found".to_string(),
-                        };
-                        PrintCommand::Info.print_message(
-                            &format!(
-                                "Bible {}, {}",
-                                bible_name_to_use,
-                                message.display_name.unwrap_or_default()
-                            ),
-                            &scripture_message,
-                        );
-                        let mut reply_message_clone = message.clone();
-                        reply_message_clone.text = scripture_message;
-                        if let Err(e) = txreplier_clone.send(reply_message_clone) {
-                            eprintln!("Failed to send cloned message: {}", e);
+            // PrintCommand::Info.print_message(
+            //     "*listener_reciever_channel.recv().await",
+            //     &message.raw_message,
+            // );
+
+            println!("Message Type:  {:?}", message.tags);
+            if message.tags.contains(&Type::Ignore) {
+                // println!("*IGNORE: {:?}", message.display_name);
+            } else {
+                for tag in &message.tags {
+                    match tag {
+                        Type::None => (),
+                        Type::Command => {
+                            println!("COMMAND!");
+                            ()
                         }
-                    } else {
-                        eprintln!("Bible named '{}' not found.", bible_name_to_use);
-                    }
-                }
-                _ => {
-                    if message.display_name != Some("ChapterVerse")
-                        && message.display_name != Some("EveryGoodWork")
-                    {
-                        // Handle other message types here if needed
+                        Type::PossibleScripture => {
+                            let bible_name_to_use = "KJV";
+                            if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                                let bible: &Bible = &*bible_arc;
+                                println!("message.text: {}", message.text);
+                                let scripture_message = match bible.get_scripture(&message.text) {
+                                    Some(verse) => {
+                                        message.clone().tags.push(Type::Scripture);
+                                        let mut reply_message_clone = message.clone();
+                                        reply_message_clone.text = format!(
+                                            "{} - {} - {:?}",
+                                            verse.scripture,
+                                            verse.abbreviation,
+                                            message.complete()
+                                        );
+                                        // TODO! Update this to use the reply field.
+                                        //reply_message_clone.reply = Some(verse.scripture);
+                                        if let Err(e) =
+                                            txreplier_clone.send(reply_message_clone.clone())
+                                        {
+                                            eprintln!("Failed to send cloned message: {}", e);
+                                        }
+                                        reply_message_clone.text
+                                    }
+                                    None => {
+                                        message.clone().tags.push(Type::NotScripture);
+                                        "Verse not found".to_string()
+                                    }
+                                };
+                                PrintCommand::Info.print_message(
+                                    &format!(
+                                        "Bible {}, {}",
+                                        bible_name_to_use,
+                                        message.display_name.unwrap_or_default()
+                                    ),
+                                    &scripture_message,
+                                );
+                            } else {
+                                eprintln!("Bible named '{}' not found.", bible_name_to_use);
+                            }
+                        }
+                        _ => {
+                            {
+                                //TODO! Handle other message types here if needed
+                            }
+                        }
                     }
                 }
             }
@@ -149,18 +165,18 @@ async fn main() {
                     )
                     .await;
 
-                // Test Loop to send 100 messages with a counter and the current time.
+                // // Test Loop to send 100 messages with a counter and the current time.
 
-                for count in 1..=10 {
-                    if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                        let timestamp = now.as_secs(); // Seconds since UNIX epoch
-                        let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
-                        let _ = replier_clone
-                            .clone()
-                            .send_message("chapterverse", &message)
-                            .await;
-                    }
-                }
+                // for count in 1..=10 {
+                //     if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                //         let timestamp = now.as_secs(); // Seconds since UNIX epoch
+                //         let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
+                //         let _ = replier_clone
+                //             .clone()
+                //             .send_message("chapterverse", &message)
+                //             .await;
+                //     }
+                // }
             }
             Err(e) => {
                 eprintln!("Failed to connect: {:?}", e);

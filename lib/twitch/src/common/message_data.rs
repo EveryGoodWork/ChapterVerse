@@ -1,12 +1,14 @@
 use std::time::{Duration, SystemTime};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Command,
     PossibleScripture,
+    NotScripture,
     Scripture,
     Gospel,
     None,
+    Ignore,
 }
 
 #[derive(Debug, Clone)]
@@ -17,22 +19,22 @@ pub struct MessageData {
     pub color: Option<&'static str>,
     pub display_name: Option<&'static str>,
     pub emotes: Option<&'static str>,
-    pub first_msg: Option<u8>,
+    pub first_msg: Option<bool>,
     pub flags: Option<&'static str>,
     pub id: Option<&'static str>,
-    pub mod_status: Option<u8>,
-    pub returning_chatter: Option<u8>,
+    pub mod_status: Option<bool>,
+    pub returning_chatter: Option<bool>,
     pub room_id: Option<&'static str>,
-    pub subscriber: Option<u8>,
+    pub subscriber: Option<bool>,
     pub tmi_sent_ts: Option<&'static str>,
-    pub turbo: Option<u8>,
+    pub turbo: Option<bool>,
     pub user_id: Option<&'static str>,
     pub user_type: Option<&'static str>,
     pub channel: String,
     pub text: String,
     pub raw_message: String,
     pub received: SystemTime,
-    pub classification: Type,
+    pub tags: Vec<Type>,
     pub reply: Option<String>,
 }
 
@@ -60,113 +62,97 @@ impl MessageData {
             text: String::new(),
             raw_message: String::new(),
             received: SystemTime::now(),
-            classification: Type::None,
+            tags: vec![],
             reply: None,
         }
     }
 
-    pub fn complete(&self) -> Result<Duration, &'static str> {
-        match SystemTime::now().duration_since(self.received) {
-            Ok(duration) => {
-                // println!("Message processing duration: {:?}", duration);
-                Ok(duration)
-            }
-            Err(_) => Err("Time went backwards"),
-        }
-    }
-
-    pub fn new(text: &str, raw_message: &str) -> Self {
-        let message_type = MessageData::determine_message_type(text);
-
-        MessageData {
-            text: text.to_string(),
-            raw_message: raw_message.to_string(),
-            classification: message_type,
-            ..MessageData::default()
-        }
-    }
-    pub fn determine_message_type(text: &str) -> Type {
+    pub fn determine_message_types(text: &str) -> Vec<Type> {
+        let mut types = Vec::new();
         if text.starts_with("!") {
-            Type::Command
-        } else if text.contains(":") {
-            Type::PossibleScripture
-        } else {
-            Type::None
+            types.push(Type::Command);
         }
+        if text.contains(":") {
+            types.push(Type::PossibleScripture);
+        }
+        if types.is_empty() {
+            types.push(Type::None);
+        }
+        types
     }
-}
 
-pub fn parse_message(message_text: &str) -> Option<MessageData> {
-    println!("parse_message: {}", message_text);
+    pub fn complete(&self) -> Result<Duration, &'static str> {
+        SystemTime::now()
+            .duration_since(self.received)
+            .map_err(|_| "Time went backwards")
+    }
 
-    if message_text.starts_with("PRIVMSG #") {
-        let parts: Vec<&str> = message_text.splitn(3, ' ').collect();
-        if parts.len() == 3 {
-            let channel = parts[1].trim_start_matches('#');
-            let text = parts[2].trim_start_matches(':');
-            let message_type = if text.starts_with("!") {
-                Type::Command
-            } else if text.contains(":") {
-                Type::PossibleScripture
+    pub fn new(raw: &str) -> Option<Self> {
+        //println!("*parse_message: {}", raw);
+
+        let meta_content_split = raw.split_once(":")?;
+        let (meta, account_and_message) = meta_content_split;
+        let content_split = account_and_message.split_once("PRIVMSG #")?;
+        let (channel, text) = if raw.starts_with("PRIVMSG #") {
+            let parts: Vec<&str> = raw.splitn(3, ' ').collect();
+            if parts.len() == 3 {
+                (
+                    parts[1].trim_start_matches('#').to_string(),
+                    parts[2].trim_start_matches(':').to_string(),
+                )
             } else {
-                Type::None
-            };
-            return Some(MessageData {
-                channel: channel.to_string(),
-                text: text.to_string(),
-                raw_message: message_text.to_string(),
-                classification: message_type,
-                reply: None,
-                ..MessageData::default()
-            });
-        }
-        return None;
-    }
+                return None;
+            }
+        } else {
+            let message = content_split.1.split_once(" :")?;
+            (
+                message.0.to_string(),
+                message.1.trim_end_matches("\r\n").to_string(),
+            )
+        };
 
-    let meta_content_split = message_text.split_once(":")?;
-    let (meta, account_and_message) = meta_content_split;
-    let content_split = account_and_message.split_once("PRIVMSG #")?;
-    let message = content_split.1.split_once(" :")?;
-    let (channel, text) = (
-        message.0.to_string(),
-        message.1.trim_end_matches("\r\n").to_string(),
-    );
-    let message_type = MessageData::determine_message_type(message_text);
+        let text_for_types = text.clone();
+        let mut message = MessageData {
+            text,
+            raw_message: raw.to_string(),
+            channel,
+            tags: Self::determine_message_types(&text_for_types), // Adjusted for multiple types
+            ..Self::default()
+        };
 
-    let mut message = MessageData {
-        channel,
-        text,
-        raw_message: message_text.to_string(),
-        classification: message_type,
-        reply: None,
-        ..MessageData::default()
-    };
-
-    for part in meta.split(";") {
-        if let Some((key, value)) = part.split_once("=") {
-            let value_static = Box::leak(value.to_string().into_boxed_str());
-            match key {
-                "badge-info" => message.badge_info = Some(value_static),
-                "badges" => message.badges = Some(value_static),
-                "client-nonce" => message.client_nonce = Some(value_static),
-                "color" => message.color = Some(value_static),
-                "display-name" => message.display_name = Some(value_static),
-                "emotes" => message.emotes = Some(value_static),
-                "first-msg" => message.first_msg = value.parse().ok(),
-                "flags" => message.flags = Some(value_static),
-                "id" => message.id = Some(value_static),
-                "mod" => message.mod_status = value.parse().ok(),
-                "returning-chatter" => message.returning_chatter = value.parse().ok(),
-                "room-id" => message.room_id = Some(value_static),
-                "subscriber" => message.subscriber = value.parse().ok(),
-                "tmi-sent-ts" => message.tmi_sent_ts = Some(value_static),
-                "turbo" => message.turbo = value.parse().ok(),
-                "user-id" => message.user_id = Some(value_static),
-                "user-type" => message.user_type = Some(value_static),
-                _ => {}
+        for part in meta.split(";") {
+            if let Some((key, value)) = part.split_once("=") {
+                let value_static = Box::leak(value.to_string().into_boxed_str());
+                match key {
+                    "badge-info" => message.badge_info = Some(value_static),
+                    "badges" => message.badges = Some(value_static),
+                    "client-nonce" => message.client_nonce = Some(value_static),
+                    "color" => message.color = Some(value_static),
+                    "display-name" => message.display_name = Some(value_static),
+                    "emotes" => message.emotes = Some(value_static),
+                    "first-msg" => message.first_msg = value.parse().ok(),
+                    "flags" => message.flags = Some(value_static),
+                    "id" => message.id = Some(value_static),
+                    "mod" => message.mod_status = value.parse().ok(),
+                    "returning-chatter" => message.returning_chatter = value.parse().ok(),
+                    "room-id" => message.room_id = Some(value_static),
+                    "subscriber" => message.subscriber = value.parse().ok(),
+                    "tmi-sent-ts" => message.tmi_sent_ts = Some(value_static),
+                    "turbo" => message.turbo = value.parse().ok(),
+                    "user-id" => message.user_id = Some(value_static),
+                    "user-type" => message.user_type = Some(value_static),
+                    _ => {}
+                }
             }
         }
+        // TODO! Pull these names from a configuration option.
+        let accounts_to_ignore = ["EveryGoodWork", "ChapterVerse"];
+        if let Some(display_name) = message.display_name {
+            if accounts_to_ignore.iter().any(|&name| name == display_name) {
+                message.tags.push(Type::Ignore);
+                return Some(message);
+            }
+        }
+        Some(message)
     }
-
-    Some(message)
 }

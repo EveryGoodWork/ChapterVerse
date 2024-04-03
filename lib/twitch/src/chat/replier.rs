@@ -37,15 +37,15 @@ impl Replier {
         channel_name: &str,
         message_text: &str,
     ) -> Result<(), &'static str> {
-        // Directly creating the MessageData object with provided values
         let message_data = MessageData {
             channel: channel_name.to_string(),
             text: message_text.to_string(),
+            // TODO! Determine if this should be done here, or if this is a reply to an existing message to use it's Settings.
             raw_message: format!("PRIVMSG #{} :{}\r\n", channel_name, message_text),
             ..MessageData::default()
         };
 
-        println!("---DEBUG SendMessage: {:?}", message_data);
+        //println!("*DEBUG SendMessage: {:?}", message_data);
         self.websocket.clone().send_message(message_data).await;
 
         Ok(())
