@@ -1,5 +1,5 @@
 use super::client::{WebSocket, WebSocketState};
-use crate::common::message_data::{parse_message, MessageData};
+use crate::common::message_data::MessageData;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -48,32 +48,6 @@ impl Replier {
         println!("---DEBUG SendMessage: {:?}", message_data);
         self.websocket.clone().send_message(message_data).await;
 
-        Ok(())
-    }
-    //TODO! Fix thsi for sending Commands.
-    // pub async fn send_command(
-    //     self: Arc<Self>,
-    //     channel_name: &str,
-    //     message_text: &str,
-    // ) -> Result<(), &'static str> {
-    //     // println!("---DEBUG SendMessage {}", message_text);
-    //     let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
-    //     if let Some(message_data) = parse_message(&message) {
-    //         self.websocket.clone().send_message(message_data).await;
-    //     }
-    //     Ok(())
-    // }
-    //TODO !Fix this for sending replies.
-    pub async fn send_reply(
-        self: Arc<Self>,
-        message_data: MessageData,
-        message_text: &str,
-    ) -> Result<(), &'static str> {
-        // // println!("---DEBUG SendMessage {}", message_text);
-        // let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
-        // if let Some(message_data) = parse_message(&message) {
-        //     self.websocket.clone().send_message(message_data).await;
-        // }
         Ok(())
     }
 }

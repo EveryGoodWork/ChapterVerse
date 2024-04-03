@@ -147,7 +147,7 @@ async fn main() {
                 for count in 1..=10 {
                     if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
                         let timestamp = now.as_secs(); // Seconds since UNIX epoch
-                        let message = format!("Count: {} - Timestamp: {}", count, timestamp);
+                        let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
                         let _ = replier_clone
                             .clone()
                             .send_message("chapterverse", &message)

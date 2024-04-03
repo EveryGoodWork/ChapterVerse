@@ -7,9 +7,7 @@ use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread::{sleep, spawn};
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
-use tokio::time;
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -20,10 +18,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_tungstenite::tungstenite::protocol::Message as WebSocketMessage;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
-
-// Added for rate limiting
-const BUCKET_CAPACITY: usize = 100; // Maximum messages that can be sent before throttling
-const LEAK_RATE: Duration = Duration::from_millis(1500); // 1 message per second
+const BUCKET_CAPACITY: usize = 100;
+const LEAK_RATE: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
@@ -53,16 +49,11 @@ pub struct WebSocket {
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
     channels: Arc<Mutex<VecDeque<Channel>>>,
     message_tx: Option<mpsc::UnboundedSender<MessageData>>,
-    message_queue: Arc<Mutex<VecDeque<String>>>,
-    message_notifier: Arc<Notify>,
-    last_message_sent_at: Arc<Mutex<Instant>>,
-    //New fields
     twitch_sink:
         Arc<Mutex<Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, WebSocketMessage>>>>,
     twitch_stream: Arc<Mutex<Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>>,
     twitch_channel_transmitter: Arc<Mutex<Option<UnboundedSender<WebSocketMessage>>>>,
     twitch_channel_reciever: Arc<Mutex<Option<UnboundedReceiver<WebSocketMessage>>>>,
-
     message_bucket: Arc<RwLock<VecDeque<String>>>,
     message_bucket_notifier: Arc<Notify>,
     channel_timeouts: Arc<RwLock<HashMap<String, Instant>>>,
@@ -86,10 +77,6 @@ impl WebSocket {
             twitch_channel_reciever: Arc::new(Mutex::new(None)),
 
             channels: Arc::new(Mutex::new(VecDeque::new())),
-            message_queue: Arc::new(Mutex::new(VecDeque::new())),
-            message_notifier: Arc::new(Notify::new()),
-            last_message_sent_at: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(30))),
-
             message_bucket: Arc::new(RwLock::new(VecDeque::new())),
             message_bucket_notifier: Arc::new(Notify::new()),
             channel_timeouts: Arc::new(RwLock::new(HashMap::new())),
@@ -108,15 +95,6 @@ impl WebSocket {
             for channel in channels.iter_mut() {
                 channel.state = ChannelState::NotConnected;
             }
-        }
-    }
-
-    fn extract_channel(message: &Message) -> Option<&str> {
-        if let Message::Text(ref text) = message {
-            let (_before, after) = text.split_once("PRIVMSG #")?;
-            after.split_once(' ').map(|(channel, _)| channel)
-        } else {
-            None
         }
     }
 
@@ -159,15 +137,14 @@ impl WebSocket {
         >,
     ) {
         let (split_sink, split_stream) = ws_stream.split();
-        //TODO! Why are these created here.
         let (twitch_transmitter, twitch_reciever) = mpsc::unbounded_channel();
 
         *self.twitch_sink.lock().await = Some(split_sink);
         *self.twitch_stream.lock().await = Some(split_stream);
         *self.twitch_channel_transmitter.lock().await = Some(twitch_transmitter.clone());
         *self.twitch_channel_reciever.lock().await = Some(twitch_reciever);
-
         self.clone().start_leaky_bucket_handler();
+
         //Start the Channel for sending messages to twitch.
         tokio::spawn({
             let self_clone = self.clone();
@@ -187,8 +164,6 @@ impl WebSocket {
             }
         });
 
-        //Start the Channel for recieving messages from twitch.
-        // Corrected approach: Process the stream where it is accessible.
         let listener_clone = self.clone();
         tokio::spawn(async move {
             let mut twitch_stream_option = listener_clone.twitch_stream.lock().await;
@@ -196,7 +171,6 @@ impl WebSocket {
                 listener_clone.listen_for_messages(twitch_stream).await;
             }
         });
-
         if let Some(oauth) = &self.oauth_token {
             if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
                 twitch_channel_write
@@ -204,7 +178,6 @@ impl WebSocket {
                     .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
             }
         }
-
         if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
             twitch_channel_write
                 .send(format!("NICK {}", self.username).into())
@@ -217,14 +190,11 @@ impl WebSocket {
 
     pub async fn send_message(&self, message: MessageData) {
         let twitch_message = format!("PRIVMSG #{} :{}\r\n", message.channel, message.text);
-        println!("twitch_message: {}", twitch_message);
+        //println!("twitch_message: {}", twitch_message);
 
         let mut message_bucket = self.message_bucket.write().await;
         if message_bucket.len() < BUCKET_CAPACITY {
             message_bucket.push_back(twitch_message.clone());
-            // Dropping the write lock happens automatically here
-
-            // Notify the bucket handler task
             self.message_bucket_notifier.notify_one();
         } else {
             println!("Bucket full, message throttled: {}", message.text);
@@ -234,37 +204,32 @@ impl WebSocket {
         let self_clone = self.clone();
         tokio::spawn(async move {
             loop {
-                // Wait for new messages to be notified
                 self_clone.message_bucket_notifier.notified().await;
 
                 let mut skipped_messages = VecDeque::new();
                 let mut processed_any = true;
 
                 while processed_any {
-                    processed_any = false; // Reset flag for each iteration
+                    processed_any = false;
 
                     {
                         let now = Instant::now();
                         let mut message_bucket = self_clone.message_bucket.write().await;
                         let mut channel_timeouts = self_clone.channel_timeouts.write().await;
 
-                        // Process messages with consideration for channel-specific timeouts
                         while let Some(message) = message_bucket.pop_front() {
-                            processed_any = true; // Mark that we processed at least one message
+                            processed_any = true;
 
                             if let Some(channel_name) = Self::extract_channel_name(&message) {
                                 if let Some(&timeout) = channel_timeouts.get(&channel_name) {
                                     if now < timeout {
-                                        // Requeue the message if within timeout
                                         skipped_messages.push_back(message);
                                         continue;
                                     }
                                 }
 
-                                // Update the timeout for the channel
                                 channel_timeouts.insert(channel_name.clone(), now + LEAK_RATE);
 
-                                // Send the message
                                 if let Some(transmitter) =
                                     &*self_clone.twitch_channel_transmitter.lock().await
                                 {
@@ -272,23 +237,17 @@ impl WebSocket {
                                         eprintln!("Error sending message: {:?}", e)
                                     });
                                 }
-
-                                // Enforce leak rate
                                 tokio::time::sleep(LEAK_RATE).await;
                             }
                         }
                     }
 
-                    // If we processed any messages, there might be more work to do
                     if processed_any {
                         let mut message_bucket = self_clone.message_bucket.write().await;
-                        // Requeue skipped messages for processing in the next iteration
                         message_bucket.extend(skipped_messages.drain(..));
                     }
                 }
 
-                // If the loop didn't process any messages and there are no skipped messages left,
-                // add a delay to prevent tight looping when there are no messages to process.
                 if !processed_any && skipped_messages.is_empty() {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -304,9 +263,7 @@ impl WebSocket {
     }
 
     pub async fn send_command(&self, command_text: &str) {
-        println!("send_command {}", command_text);
-
-        // Accessing the `twitch_channel_write` field properly with lock.
+        // println!("send_command {}", command_text);
         if let Some(transmitter_locked) = &*self.twitch_channel_transmitter.lock().await {
             transmitter_locked
                 .send(command_text.into())
