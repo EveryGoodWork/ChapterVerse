@@ -4,5 +4,6 @@
         ".\\Cargo.toml",
         ".\\lib\\twitch\\Cargo.toml",
         ".\\lib\\bible\\Cargo.toml"
-    ]
+    ],
+    "rust-analyzer.showUnlinkedFileNotification": false
 }

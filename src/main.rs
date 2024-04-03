@@ -11,6 +11,7 @@ use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
 use twitch::common::message_data::MessageData;
+use twitch::common::message_data::Type;
 
 use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
@@ -53,34 +54,40 @@ async fn main() {
                 "---listener_reciever_channel.recv().await: {}",
                 message.raw_message
             );
-            // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
-            // TODO! this will pull from a user preference variable
-            // TODO! Pull list of names to ignore from a configuraiton file
-            if message.display_name != Some("ChapterVerse")
-                && message.display_name != Some("EveryGoodWork")
-            {
-                let bible_name_to_use = "KJV";
-                if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
-                    let bible: &Bible = &*bible_arc;
-                    let scripture_message = match bible.get_scripture(&message.text) {
-                        Some(verse) => format!("{}", verse.scripture),
-                        None => "Verse not found".to_string(),
-                    };
-                    PrintCommand::Info.print_message(
-                        &format!(
-                            "Bible {}, {}",
-                            bible_name_to_use,
-                            message.display_name.unwrap_or_default()
-                        ),
-                        &scripture_message,
-                    );
-                    let mut reply_message_clone = message.clone();
-                    reply_message_clone.text = scripture_message;
-                    if let Err(e) = txreplier_clone.send(reply_message_clone) {
-                        eprintln!("Failed to send cloned message: {}", e);
+            println!("Message Type:  {:?}", message.classification);
+            match message.classification {
+                Type::None => (),
+                Type::Scripture => {
+                    let bible_name_to_use = "KJV";
+                    if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                        let bible: &Bible = &*bible_arc;
+                        let scripture_message = match bible.get_scripture(&message.text) {
+                            Some(verse) => format!("{}", verse.scripture),
+                            None => "Verse not found".to_string(),
+                        };
+                        PrintCommand::Info.print_message(
+                            &format!(
+                                "Bible {}, {}",
+                                bible_name_to_use,
+                                message.display_name.unwrap_or_default()
+                            ),
+                            &scripture_message,
+                        );
+                        let mut reply_message_clone = message.clone();
+                        reply_message_clone.text = scripture_message;
+                        if let Err(e) = txreplier_clone.send(reply_message_clone) {
+                            eprintln!("Failed to send cloned message: {}", e);
+                        }
+                    } else {
+                        eprintln!("Bible named '{}' not found.", bible_name_to_use);
                     }
-                } else {
-                    eprintln!("Bible named '{}' not found.", bible_name_to_use);
+                }
+                _ => {
+                    if message.display_name != Some("ChapterVerse")
+                        && message.display_name != Some("EveryGoodWork")
+                    {
+                        // Handle other message types here if needed
+                    }
                 }
             }
             match message.complete() {
