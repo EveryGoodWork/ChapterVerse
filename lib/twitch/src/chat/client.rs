@@ -7,6 +7,7 @@ use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time;
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::connect_async;
@@ -20,6 +21,51 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 const BUCKET_CAPACITY: usize = 100;
 const LEAK_RATE: Duration = Duration::from_millis(1500);
+
+struct JoinRateLimiter {
+    join_attempts: Mutex<Vec<Instant>>,
+    max_attempts: usize,
+    period: Duration,
+}
+
+impl JoinRateLimiter {
+    /// https://dev.twitch.tv/docs/irc/#rate-limits
+    /// https://discuss.dev.twitch.com/t/giving-broadcasters-control-concurrent-join-limits-for-irc-and-eventsub/54997
+    /// 20 join attempts per 10 seconds per user.
+    // TODO!  This is going to be a problem.  Concurrent channel join limit reduced to 100.
+    pub fn new(max_attempts: usize, period: Duration) -> Self {
+        JoinRateLimiter {
+            join_attempts: Mutex::new(Vec::new()),
+            max_attempts,
+            period,
+        }
+    }
+
+    pub async fn wait_and_record(&self) {
+        loop {
+            let now = Instant::now();
+            let mut attempts = self.join_attempts.lock().await;
+            attempts.retain(|&x| x.elapsed() < self.period);
+
+            if attempts.len() < self.max_attempts {
+                attempts.push(now);
+                break;
+            } else {
+                if let Some(first) = attempts.first() {
+                    let wait_until = *first + self.period;
+                    let now = Instant::now();
+                    if wait_until > now {
+                        drop(attempts);
+                        tokio::time::sleep(wait_until - now).await;
+                    } else {
+                        attempts.push(now);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebSocketState {
@@ -57,6 +103,7 @@ pub struct WebSocket {
     message_bucket: Arc<RwLock<VecDeque<String>>>,
     message_bucket_notifier: Arc<Notify>,
     channel_timeouts: Arc<RwLock<HashMap<String, Instant>>>,
+    join_rate_limiter: Arc<JoinRateLimiter>,
 }
 
 impl WebSocket {
@@ -80,6 +127,7 @@ impl WebSocket {
             message_bucket: Arc::new(RwLock::new(VecDeque::new())),
             message_bucket_notifier: Arc::new(Notify::new()),
             channel_timeouts: Arc::new(RwLock::new(HashMap::new())),
+            join_rate_limiter: Arc::new(JoinRateLimiter::new(20, Duration::from_secs(10))),
         });
         instance
     }
@@ -295,13 +343,14 @@ impl WebSocket {
             self.process_channel_joining().await;
         } else {
             println!("WebSocket is not connected. Waiting to join channels....");
+            //TODO!  Reflect on this later and see if it's still necessary for this to happen.
             tokio::spawn({
                 let ws_clone = Arc::clone(&self);
                 async move {
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                         if ws_clone.get_state() == WebSocketState::Connected {
-                            println!("WebSocket is now connected. Attempting to join channels.");
+                            //println!("WebSocket is now connected. Attempting to join channels.");
                             ws_clone.process_channel_joining().await;
                             break;
                         }
@@ -313,17 +362,20 @@ impl WebSocket {
 
     async fn process_channel_joining(&self) {
         let mut channels = self.channels.lock().await;
-        println!("Current channels queue size: {}", channels.len());
-
-        // TODO!  Joining the channel is the next step to look at.
+        // println!("Current channels queue size: {}", channels.len());
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
+                self.join_rate_limiter.wait_and_record().await;
                 self.send_command(&format!("JOIN #{}", channel.name.to_lowercase()))
                     .await;
-                println!("Joining channel: {}", channel.name);
+                println!(
+                    "Joining channel: {} {:?}",
+                    channel.name,
+                    time::SystemTime::now()
+                );
                 channel.state = ChannelState::Connected;
             } else {
-                println!("Already joined channel: {}", channel.name);
+                // println!("Already joined channel: {}", channel.name);
             }
         }
     }
