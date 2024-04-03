@@ -25,7 +25,7 @@ impl Replier {
         Ok(())
     }
     pub async fn join_channel(self: Arc<Self>, channel_name: &str) -> Result<(), &'static str> {
-        println!("join_channel {}", channel_name);
+        println!("Replier join_channel: {}", channel_name);
         self.websocket.clone().join_channel(channel_name).await;
         Ok(())
     }
@@ -44,7 +44,6 @@ impl Replier {
             raw_message: format!("PRIVMSG #{} :{}\r\n", channel_name, message_text),
             ..MessageData::default()
         };
-
         //println!("*DEBUG SendMessage: {:?}", message_data);
         self.websocket.clone().send_message(message_data).await;
 

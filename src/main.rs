@@ -36,7 +36,30 @@ async fn main() {
     let mut rxreplier_clone = rxreplier;
 
     // TODO!  Create a config files to pull these from, each channel gets it's own file.
-    let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
+    // let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
+    let channels_to_join = vec![
+        "chapterverse".to_string(),
+        "missionarygamer".to_string(),
+        "kcchurch".to_string(),
+        "madhelp".to_string(),
+        "streamintel".to_string(),
+        "carol_ai".to_string(),
+        "madmeshes".to_string(),
+        "linuxmountian".to_string(),
+        "host_ai".to_string(),
+        "twitchstreamintel".to_string(),
+        "FrankLayman".to_string(),
+        "Husky_Pup".to_string(),
+        "Spurgeon_AI".to_string(),
+        "Bob_AI".to_string(),
+        "ScatteredWisdom".to_string(),
+        "biblicalwisdom".to_string(),
+        "overlaygames_bot".to_string(),
+        "Guest_AI".to_string(),
+        "blipzak".to_string(),
+        "TodAIshow".to_string(),
+        "fireresistant".to_string(),
+    ];
 
     tokio::spawn(async move {
         //This Listens for incoming Twitch messages.
