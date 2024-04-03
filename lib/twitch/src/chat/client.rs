@@ -296,11 +296,11 @@ impl WebSocket {
         });
     }
 
-    /// Extracts channel name from the twitch message.
-    /// This function needs to be implemented based on your message format.
     fn extract_channel_name(message: &str) -> Option<String> {
-        // Implement logic to extract the channel name from the message
-        Some("example_channel".to_string()) //
+        let (_before, after) = message.split_once("PRIVMSG #")?;
+        after
+            .split_once(' ')
+            .map(|(channel, _)| channel.to_string())
     }
 
     pub async fn send_command(&self, command_text: &str) {
