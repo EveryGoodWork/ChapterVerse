@@ -3,14 +3,13 @@ use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::MessageData;
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
-use futures_util::{pin_mut, Future, SinkExt, StreamExt};
+use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
-use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time;
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
