@@ -3,8 +3,10 @@ use helpers::print_color::PrintCommand;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
@@ -13,6 +15,7 @@ use twitch::common::message_data::Type;
 
 use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
+use crate::helpers::statics::CHANNELS_TO_JOIN;
 
 mod helpers;
 #[tokio::main]
@@ -30,39 +33,15 @@ async fn main() {
     }
 
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
-    let twitch_listener = Arc::new(Listener::new(listener_transmitter));
+    let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
+    let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
     let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
     let txreplier_clone = txreplier.clone();
     let mut rxreplier_clone = rxreplier;
 
-    // TODO!  Create a config files to pull these from, each channel gets it's own file.
-    // let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
-    let channels_to_join = vec![
-        "chapterverse".to_string(),
-        "missionarygamer".to_string(),
-        "kcchurch".to_string(),
-        "madhelp".to_string(),
-        "streamintel".to_string(),
-        "carol_ai".to_string(),
-        "madmeshes".to_string(),
-        "linuxmountian".to_string(),
-        "host_ai".to_string(),
-        "twitchstreamintel".to_string(),
-        "FrankLayman".to_string(),
-        "Husky_Pup".to_string(),
-        "Spurgeon_AI".to_string(),
-        "Bob_AI".to_string(),
-        "ScatteredWisdom".to_string(),
-        "biblicalwisdom".to_string(),
-        "overlaygames_bot".to_string(),
-        "Guest_AI".to_string(),
-        "blipzak".to_string(),
-        "TodAIshow".to_string(),
-        "fireresistant".to_string(),
-    ];
-
+    const CHANNELS_PER_LISTENER: usize = 5;
+    // Spawn a taslk to Listens for incoming Twitch messages.
     tokio::spawn(async move {
-        //This Listens for incoming Twitch messages.
         while let Some(message) = listener_reciever.recv().await {
             // PrintCommand::Info.print_message(
             //     "*listener_reciever_channel.recv().await",
@@ -136,7 +115,7 @@ async fn main() {
         }
     });
 
-    // Spawn a task to manage connection, listening, and reconnection
+    // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
         loop {
             let loop_listener_clone = Arc::clone(&twitch_listener);
@@ -148,11 +127,31 @@ async fn main() {
                     continue;
                 }
             }
-            for channel in &channels_to_join.clone() {
-                match loop_listener_clone.clone().join_channel(channel).await {
-                    Ok(_) => (),
-                    Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+            for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
+                let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
+                let listeners_lock = listeners.lock();
+                listeners_lock.await.insert(
+                    twitch_listener.username.to_string(),
+                    twitch_listener.clone(),
+                );
+                match twitch_listener.clone().connect().await {
+                    Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
+                    Err(e) => {
+                        eprintln!("Failed to connect: {:?}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        continue;
+                    }
                 }
+                tokio::spawn(async move {
+                    for channel in chunk {
+                        let twitch_listener_clone = Arc::clone(&twitch_listener); // Clone for each iteration
+                        let username = twitch_listener_clone.username.to_string();
+                        match twitch_listener_clone.join_channel(channel).await {
+                            Ok(_) => println!("{} Joined channel {}", username, channel),
+                            Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                        }
+                    }
+                });
             }
             while loop_listener_clone.clone().get_state() != WebSocketState::Disconnected {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -164,7 +163,7 @@ async fn main() {
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
     let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
 
-    // THIS IS THE CODE TO REPLY
+    // Spawn a task for replying to messages.
     tokio::spawn(async move {
         let replier_clone = Arc::clone(&replier);
         let loop_replier_clone = Arc::clone(&replier);

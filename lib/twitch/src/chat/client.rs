@@ -362,7 +362,7 @@ impl WebSocket {
 
     async fn process_channel_joining(&self) {
         let mut channels = self.channels.lock().await;
-        // println!("Current channels queue size: {}", channels.len());
+        println!("Current channels queue size: {}", channels.len());
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
                 self.join_rate_limiter.wait_and_record().await;

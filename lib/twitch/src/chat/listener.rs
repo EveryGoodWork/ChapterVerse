@@ -6,14 +6,16 @@ use tokio::sync::mpsc;
 
 pub struct Listener {
     pub message_tx: mpsc::UnboundedSender<MessageData>,
-    websocket: Arc<WebSocket>,
+    pub websocket: Arc<WebSocket>,
+    pub username: Arc<String>,
 }
 impl Listener {
     pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
         let username = format!("justinfan{}", rand::thread_rng().gen_range(10000..=99999));
         Listener {
             message_tx: message_tx.clone(),
-            websocket: WebSocket::new(message_tx, username, None),
+            websocket: WebSocket::new(message_tx, username.clone(), None),
+            username: username.into(),
         }
     }
     pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error + Send>> {
