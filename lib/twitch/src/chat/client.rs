@@ -237,17 +237,25 @@ impl WebSocket {
     }
 
     pub async fn send_message(&self, message: MessageData) {
-        let twitch_message = format!("PRIVMSG #{} :{}\r\n", message.channel, message.text);
-        //println!("twitch_message: {}", twitch_message);
+        let twitch_message = match message.reply {
+            Some(ref reply) => format!(
+                "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
+                message.id.unwrap(),
+                message.channel,
+                reply
+            ),
+            None => format!("PRIVMSG #{} :{}\r\n", message.channel, message.text),
+        };
 
         let mut message_bucket = self.message_bucket.write().await;
         if message_bucket.len() < BUCKET_CAPACITY {
             message_bucket.push_back(twitch_message.clone());
             self.message_bucket_notifier.notify_one();
         } else {
-            println!("Bucket full, message throttled: {}", message.text);
+            println!("Bucket full, message throttled: {}", twitch_message);
         }
     }
+
     pub fn start_leaky_bucket_handler(self: Arc<Self>) {
         let self_clone = self.clone();
         tokio::spawn(async move {

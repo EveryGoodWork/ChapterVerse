@@ -36,23 +36,15 @@ async fn main() {
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
     let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
     let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
-    let txreplier_clone = txreplier.clone();
     let mut rxreplier_clone = rxreplier;
 
     const CHANNELS_PER_LISTENER: usize = 5;
     // Spawn a taslk to Listens for incoming Twitch messages.
     tokio::spawn(async move {
-        while let Some(message) = listener_reciever.recv().await {
-            // PrintCommand::Info.print_message(
-            //     "*listener_reciever_channel.recv().await",
-            //     &message.raw_message,
-            // );
-
-            println!("Message Type:  {:?}", message.tags);
-            if message.tags.contains(&Type::Ignore) {
-                // println!("*IGNORE: {:?}", message.display_name);
-            } else {
-                for tag in &message.tags {
+        while let Some(mut message) = listener_reciever.recv().await {
+            let tags = message.tags.clone();
+            if !tags.contains(&Type::Ignore) {
+                for tag in tags {
                     match tag {
                         Type::None => (),
                         Type::Command => {
@@ -60,39 +52,36 @@ async fn main() {
                             ()
                         }
                         Type::PossibleScripture => {
+                            // TODO! Pull bible preference from env or context of the request.
                             let bible_name_to_use = "KJV";
+
                             if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
-                                println!("message.text: {}", message.text);
+                                //println!("message.text: {}", &message.text);
                                 let scripture_message = match bible.get_scripture(&message.text) {
                                     Some(verse) => {
-                                        message.clone().tags.push(Type::Scripture);
-                                        let mut reply_message_clone = message.clone();
-                                        reply_message_clone.text = format!(
+                                        message.tags.push(Type::Scripture);
+                                        let completed = message.complete();
+                                        let scripture = format!(
+                                            // TODO! Pull reply format from env variable.
                                             "{} - {} - {:?}",
-                                            verse.scripture,
-                                            verse.abbreviation,
-                                            message.complete()
+                                            verse.scripture, verse.abbreviation, completed
                                         );
-                                        // TODO! Update this to use the reply field.
-                                        //reply_message_clone.reply = Some(verse.scripture);
-                                        if let Err(e) =
-                                            txreplier_clone.send(reply_message_clone.clone())
-                                        {
+                                        message.reply = Some(scripture.to_string());
+                                        if let Err(e) = txreplier.send(message.clone()) {
                                             eprintln!("Failed to send cloned message: {}", e);
                                         }
-                                        reply_message_clone.text
+                                        scripture
                                     }
                                     None => {
-                                        message.clone().tags.push(Type::NotScripture);
+                                        message.tags.push(Type::NotScripture);
                                         "Verse not found".to_string()
                                     }
                                 };
                                 PrintCommand::Info.print_message(
                                     &format!(
-                                        "Bible {}, {}",
-                                        bible_name_to_use,
-                                        message.display_name.unwrap_or_default()
+                                        "Bible {}, {:?}",
+                                        bible_name_to_use, message.display_name
                                     ),
                                     &scripture_message,
                                 );
@@ -109,7 +98,10 @@ async fn main() {
                 }
             }
             match message.complete() {
-                Ok(duration) => println!("Message processing duration: {:?}", duration),
+                Ok(duration) => println!(
+                    "Message processing duration: {:?}={:?}",
+                    message.tags, duration
+                ),
                 Err(e) => eprintln!("Error calculating duration: {}", e),
             }
         }
@@ -170,7 +162,6 @@ async fn main() {
         match replier_clone.clone().connect().await {
             Ok(_) => {
                 println!("Successfully connected for Replying.");
-                // TODO! This is an initial message to show it's connected to the channel.
                 let _ = replier_clone
                     .clone()
                     .send_message("chapterverse", "Jesus is Lord!")
@@ -188,7 +179,6 @@ async fn main() {
                     .await;
 
                 // // Test Loop to send 100 messages with a counter and the current time.
-
                 // for count in 1..=10 {
                 //     if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 //         let timestamp = now.as_secs(); // Seconds since UNIX epoch
@@ -206,15 +196,14 @@ async fn main() {
             }
         }
         while let Some(message) = rxreplier_clone.recv().await {
+            // TODO!  Find out about if I can remove these clones.
             let _ = loop_replier_clone
                 .clone()
                 // TODO! Update MessageData with a reply_text field
-                .send_message(&message.channel, &message.text)
+                .reply_message(message)
                 .await;
         }
     });
-
-    // let mut rx_clone = listener_reciever_channel;
 
     // This line will keep the program running indefinitely until it's killed manually (e.g., Ctrl+C).
     pending::<()>().await;
