@@ -3,17 +3,19 @@ use helpers::print_color::PrintCommand;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use tokio::sync::Mutex;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
 use twitch::common::message_data::MessageData;
+use twitch::common::message_data::Type;
 
 use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
+use crate::helpers::statics::CHANNELS_TO_JOIN;
 
 mod helpers;
 #[tokio::main]
@@ -30,57 +32,80 @@ async fn main() {
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
-    //This is the Transmit and reciever thread safe channels
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
-    let twitch_listener = Arc::new(Listener::new(listener_transmitter));
-    // TODO! This needs to be addressed as the replier doesn't really use this channel, but will for account messages.
-    //let (txr, rxr) = mpsc::unbounded_channel::<MessageData>();
-
-    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
+    let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
+    let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
     let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
-
-    //This channel is for sending replies to the Twitch reply, not to be confused with the messages coming into the reply on their own.
     let txreplier_clone = txreplier.clone();
     let mut rxreplier_clone = rxreplier;
 
-    // TODO!  Create a config files to pull these from, each channel gets it's own file.
-    let channels_to_join = vec!["chapterverse".to_string(), "missionarygamer".to_string()];
-
-    //This Listens for incoming messages.
+    const CHANNELS_PER_LISTENER: usize = 5;
+    // Spawn a taslk to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(message) = listener_reciever.recv().await {
-            println!(
-                "---listener_reciever_channel.recv().await: {}",
-                message.raw_message
-            );
-            // TODO! Add a preliminary scan to determine if there is potential scripture(s) in this message.
-            // TODO! this will pull from a user preference variable
-            // TODO! Pull list of names to ignore from a configuraiton file
-            if message.display_name != Some("ChapterVerse")
-                && message.display_name != Some("EveryGoodWork")
-            {
-                let bible_name_to_use = "KJV";
-                if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
-                    let bible: &Bible = &*bible_arc;
-                    let scripture_message = match bible.get_scripture(&message.text) {
-                        Some(verse) => format!("{}", verse.scripture),
-                        None => "Verse not found".to_string(),
-                    };
-                    PrintCommand::Info.print_message(
-                        &format!(
-                            "Bible {}, {}",
-                            bible_name_to_use,
-                            message.display_name.unwrap_or_default()
-                        ),
-                        &scripture_message,
-                    );
-                    let mut reply_message_clone = message.clone();
-                    reply_message_clone.text = scripture_message;
-                    if let Err(e) = txreplier_clone.send(reply_message_clone) {
-                        eprintln!("Failed to send cloned message: {}", e);
+            // PrintCommand::Info.print_message(
+            //     "*listener_reciever_channel.recv().await",
+            //     &message.raw_message,
+            // );
+
+            println!("Message Type:  {:?}", message.tags);
+            if message.tags.contains(&Type::Ignore) {
+                // println!("*IGNORE: {:?}", message.display_name);
+            } else {
+                for tag in &message.tags {
+                    match tag {
+                        Type::None => (),
+                        Type::Command => {
+                            println!("COMMAND!");
+                            ()
+                        }
+                        Type::PossibleScripture => {
+                            let bible_name_to_use = "KJV";
+                            if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                                let bible: &Bible = &*bible_arc;
+                                println!("message.text: {}", message.text);
+                                let scripture_message = match bible.get_scripture(&message.text) {
+                                    Some(verse) => {
+                                        message.clone().tags.push(Type::Scripture);
+                                        let mut reply_message_clone = message.clone();
+                                        reply_message_clone.text = format!(
+                                            "{} - {} - {:?}",
+                                            verse.scripture,
+                                            verse.abbreviation,
+                                            message.complete()
+                                        );
+                                        // TODO! Update this to use the reply field.
+                                        //reply_message_clone.reply = Some(verse.scripture);
+                                        if let Err(e) =
+                                            txreplier_clone.send(reply_message_clone.clone())
+                                        {
+                                            eprintln!("Failed to send cloned message: {}", e);
+                                        }
+                                        reply_message_clone.text
+                                    }
+                                    None => {
+                                        message.clone().tags.push(Type::NotScripture);
+                                        "Verse not found".to_string()
+                                    }
+                                };
+                                PrintCommand::Info.print_message(
+                                    &format!(
+                                        "Bible {}, {}",
+                                        bible_name_to_use,
+                                        message.display_name.unwrap_or_default()
+                                    ),
+                                    &scripture_message,
+                                );
+                            } else {
+                                eprintln!("Bible named '{}' not found.", bible_name_to_use);
+                            }
+                        }
+                        _ => {
+                            {
+                                //TODO! Handle other message types here if needed
+                            }
+                        }
                     }
-                } else {
-                    eprintln!("Bible named '{}' not found.", bible_name_to_use);
                 }
             }
             match message.complete() {
@@ -90,7 +115,7 @@ async fn main() {
         }
     });
 
-    // Spawn a task to manage connection, listening, and reconnection
+    // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
         loop {
             let loop_listener_clone = Arc::clone(&twitch_listener);
@@ -102,11 +127,31 @@ async fn main() {
                     continue;
                 }
             }
-            for channel in &channels_to_join.clone() {
-                match loop_listener_clone.clone().join_channel(channel).await {
-                    Ok(_) => (),
-                    Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+            for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
+                let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
+                let listeners_lock = listeners.lock();
+                listeners_lock.await.insert(
+                    twitch_listener.username.to_string(),
+                    twitch_listener.clone(),
+                );
+                match twitch_listener.clone().connect().await {
+                    Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
+                    Err(e) => {
+                        eprintln!("Failed to connect: {:?}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        continue;
+                    }
                 }
+                tokio::spawn(async move {
+                    for channel in chunk {
+                        let twitch_listener_clone = Arc::clone(&twitch_listener); // Clone for each iteration
+                        let username = twitch_listener_clone.username.to_string();
+                        match twitch_listener_clone.join_channel(channel).await {
+                            Ok(_) => println!("{} Joined channel {}", username, channel),
+                            Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                        }
+                    }
+                });
             }
             while loop_listener_clone.clone().get_state() != WebSocketState::Disconnected {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -118,7 +163,7 @@ async fn main() {
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
     let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
 
-    // THIS IS THE CODE TO REPLY
+    // Spawn a task for replying to messages.
     tokio::spawn(async move {
         let replier_clone = Arc::clone(&replier);
         let loop_replier_clone = Arc::clone(&replier);
@@ -142,18 +187,18 @@ async fn main() {
                     )
                     .await;
 
-                // Test Loop to send 100 messages with a counter and the current time.
+                // // Test Loop to send 100 messages with a counter and the current time.
 
-                for count in 1..=10 {
-                    if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                        let timestamp = now.as_secs(); // Seconds since UNIX epoch
-                        let message = format!("Count: {} - Timestamp: {}", count, timestamp);
-                        let _ = replier_clone
-                            .clone()
-                            .send_message("chapterverse", &message)
-                            .await;
-                    }
-                }
+                // for count in 1..=10 {
+                //     if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                //         let timestamp = now.as_secs(); // Seconds since UNIX epoch
+                //         let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
+                //         let _ = replier_clone
+                //             .clone()
+                //             .send_message("chapterverse", &message)
+                //             .await;
+                //     }
+                // }
             }
             Err(e) => {
                 eprintln!("Failed to connect: {:?}", e);

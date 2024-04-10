@@ -1,5 +1,5 @@
 use super::client::{WebSocket, WebSocketState};
-use crate::common::message_data::{parse_message, MessageData};
+use crate::common::message_data::MessageData;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -25,7 +25,7 @@ impl Replier {
         Ok(())
     }
     pub async fn join_channel(self: Arc<Self>, channel_name: &str) -> Result<(), &'static str> {
-        println!("join_channel {}", channel_name);
+        println!("Replier join_channel: {}", channel_name);
         self.websocket.clone().join_channel(channel_name).await;
         Ok(())
     }
@@ -37,43 +37,16 @@ impl Replier {
         channel_name: &str,
         message_text: &str,
     ) -> Result<(), &'static str> {
-        // Directly creating the MessageData object with provided values
         let message_data = MessageData {
             channel: channel_name.to_string(),
             text: message_text.to_string(),
+            // TODO! Determine if this should be done here, or if this is a reply to an existing message to use it's Settings.
             raw_message: format!("PRIVMSG #{} :{}\r\n", channel_name, message_text),
             ..MessageData::default()
         };
-
-        println!("---DEBUG SendMessage: {:?}", message_data);
+        //println!("*DEBUG SendMessage: {:?}", message_data);
         self.websocket.clone().send_message(message_data).await;
 
-        Ok(())
-    }
-    //TODO! Fix thsi for sending Commands.
-    // pub async fn send_command(
-    //     self: Arc<Self>,
-    //     channel_name: &str,
-    //     message_text: &str,
-    // ) -> Result<(), &'static str> {
-    //     // println!("---DEBUG SendMessage {}", message_text);
-    //     let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
-    //     if let Some(message_data) = parse_message(&message) {
-    //         self.websocket.clone().send_message(message_data).await;
-    //     }
-    //     Ok(())
-    // }
-    //TODO !Fix this for sending replies.
-    pub async fn send_reply(
-        self: Arc<Self>,
-        message_data: MessageData,
-        message_text: &str,
-    ) -> Result<(), &'static str> {
-        // // println!("---DEBUG SendMessage {}", message_text);
-        // let message = format!("PRIVMSG #{} :{}\r\n", channel_name, message_text);
-        // if let Some(message_data) = parse_message(&message) {
-        //     self.websocket.clone().send_message(message_data).await;
-        // }
         Ok(())
     }
 }
