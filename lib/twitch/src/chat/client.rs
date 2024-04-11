@@ -398,7 +398,7 @@ impl WebSocket {
             match message {
                 Ok(Message::Text(text)) => {
                     if text.starts_with("PING") {
-                        println!("Received PING, sending: PONG");
+                        //println!("DEBUG Received PING, sending: PONG");
                         self.send_command(&text.replace("PING", "PONG")).await;
                     } else if text.contains("PRIVMSG #") {
                         if let Some(parsed_message) = common::message_data::MessageData::new(&text)

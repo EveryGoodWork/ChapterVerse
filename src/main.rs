@@ -16,6 +16,7 @@ use twitch::common::message_data::Type;
 use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
 use crate::helpers::statics::CHANNELS_TO_JOIN;
+use crate::helpers::statics::{EVANGELIO, EVANGELIUM, GOSPEL};
 
 mod helpers;
 #[tokio::main]
@@ -40,42 +41,79 @@ async fn main() {
 
     const CHANNELS_PER_LISTENER: usize = 5;
     // Spawn a taslk to Listens for incoming Twitch messages.
+
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
+            let mut reply: Option<String> = None;
             let tags = message.tags.clone();
             if !tags.contains(&Type::Ignore) {
                 for tag in tags {
                     match tag {
                         Type::None => (),
+                        Type::Gospel => reply = Some(GOSPEL.to_string()),
                         Type::Command => {
-                            println!("COMMAND!");
-                            ()
+                            let command = message.text.as_str().to_lowercase();
+
+                            reply = match command.as_str() {
+                                // TODO!  Get the list of avaialble translations dynamically.
+                                "!help" => Some(" Available translations: AMP, ESV (default), KJV, NASB, NIV, NKJV, Web. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.".to_string()),
+                                "!joinchannel" =>{ 
+                                    println!("Join a channel {}", message.channel);
+                                    Some("Join a channel.".to_string())},
+                                "!votd" => Some("Display the verse of the day.".to_string()),
+                                "!random" => Some("Display a random verse.".to_string()),
+                                "!next" => Some("Go to the next item.".to_string()),
+                                "!previous" => Some("Go to the previous item.".to_string()),
+                                "!leavechannel" => Some("Leave the current channel.".to_string()),
+                                "!myinfo" => Some("Display user's information.".to_string()),
+                                "!support" => Some("Display support options.".to_string()),
+                                "!status" => Some("Display current status.".to_string()),
+                                "!setcommandprefix" => Some("Set the command prefix.".to_string()),
+                                "!setvotd" => Some("Set the verse of the day.".to_string()),
+                                // TODO! This needs to be conbined into 1.
+                                "!gospel" => {
+                                    message.tags.push(Type::Gospel);
+                                    Some(GOSPEL.to_string())
+                                }
+                                "!evangelio" => {
+                                    message.tags.push(Type::Gospel);
+                                    Some(EVANGELIO.to_string())
+                                }
+                                "!evangelium" => {
+                                    message.tags.push(Type::Gospel);
+                                    // TODO!  Add the other versions of the Gospel.
+                                    Some(EVANGELIUM.to_string())
+                                }
+                                _ => None,
+                            };
+
+                            // if let Some(response) = reply {
+                            //     println!("Command: {}", response);
+                            //     let completed = message.complete();
+                            //     message.reply =
+                            //         Some(format!("{} - {:?}", response.to_string(), completed));
+                            //     if let Err(e) = txreplier.send(message.clone()) {
+                            //         eprintln!("Failed to send cloned message: {}", e);
+                            //     }
+                            // } else {
+                            //     println!("Unknown command.");
+                            // }
                         }
                         Type::PossibleScripture => {
                             // TODO! Pull bible preference from env or context of the request.
                             let bible_name_to_use = "KJV";
-
                             if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
-                                //println!("message.text: {}", &message.text);
-                                let scripture_message = match bible.get_scripture(&message.text) {
+                                reply = match bible.get_scripture(&message.text) {
                                     Some(verse) => {
                                         message.tags.push(Type::Scripture);
-                                        let completed = message.complete();
-                                        let scripture = format!(
-                                            // TODO! Pull reply format from env variable.
-                                            "{} - {} - {:?}",
-                                            verse.scripture, verse.abbreviation, completed
-                                        );
-                                        message.reply = Some(scripture.to_string());
-                                        if let Err(e) = txreplier.send(message.clone()) {
-                                            eprintln!("Failed to send cloned message: {}", e);
-                                        }
-                                        scripture
+                                        let scripture =
+                                            format!("{} - {}", verse.scripture, verse.abbreviation);
+                                        Some(scripture)
                                     }
                                     None => {
                                         message.tags.push(Type::NotScripture);
-                                        "Verse not found".to_string()
+                                        Some("Verse not found".to_string())
                                     }
                                 };
                                 PrintCommand::Info.print_message(
@@ -83,7 +121,7 @@ async fn main() {
                                         "Bible {}, {:?}",
                                         bible_name_to_use, message.display_name
                                     ),
-                                    &scripture_message,
+                                    format!("{:?}", reply).as_str(),
                                 );
                             } else {
                                 eprintln!("Bible named '{}' not found.", bible_name_to_use);
@@ -95,15 +133,34 @@ async fn main() {
                             }
                         }
                     }
+                    match reply {
+                        Some(ref reply_value) => {
+                            message.reply = Some(format!(
+                                "{} ({})",
+                                reply_value,
+                                message
+                                    .complete()
+                                    .ok()
+                                    .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
+                            ));
+                            if let Err(e) = txreplier.send(message.clone()) {
+                                eprintln!("Failed to send message: {}", e);
+                            }
+                        }
+                        None => {
+                            println!("NONE: {:?}", reply);
+                            let _ = message.complete();
+                        }
+                    }
                 }
             }
-            match message.complete() {
-                Ok(duration) => println!(
-                    "Message processing duration: {:?}={:?}",
-                    message.tags, duration
-                ),
-                Err(e) => eprintln!("Error calculating duration: {}", e),
-            }
+            // match message.complete() {
+            //     Ok(duration) => println!(
+            //         "Message processing duration: {:?}={:?}",
+            //         message.tags, duration
+            //     ),
+            //     Err(e) => eprintln!("Error calculating duration: {}", e),
+            // }
         }
     });
 
