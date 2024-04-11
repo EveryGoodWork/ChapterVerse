@@ -13,6 +13,7 @@ use twitch::chat::Replier;
 use twitch::common::message_data::MessageData;
 use twitch::common::message_data::Type;
 
+use crate::helpers::config::Config;
 use crate::helpers::env_variables::get_env_variable;
 use crate::helpers::statics::BIBLES;
 use crate::helpers::statics::CHANNELS_TO_JOIN;
@@ -57,8 +58,12 @@ async fn main() {
                             reply = match command.as_str() {
                                 // TODO!  Get the list of avaialble translations dynamically.
                                 "!help" => Some(" Available translations: AMP, ESV (default), KJV, NASB, NIV, NKJV, Web. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.".to_string()),
-                                "!joinchannel" =>{ 
+                                "!joinchannel" =>{                                     
                                     println!("Join a channel {}", message.channel);
+                                    let config: Config = Config::new();                                    
+                                    println!("Channel name: {}", config.channel_name().unwrap_or_else(|e| e.to_string()));
+                                    println!("Temp: {}", config.temp().unwrap_or_else(|e| e.to_string()));
+                                    
                                     Some("Join a channel.".to_string())},
                                 "!votd" => Some("Display the verse of the day.".to_string()),
                                 "!random" => Some("Display a random verse.".to_string()),

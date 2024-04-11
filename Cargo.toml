@@ -1,6 +1,6 @@
 [package]
 name = "chapterverse"
-version = "2024.4.10"
+version = "2024.4.11"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,6 +28,8 @@ async-trait = "0.1.79"
 thiserror = "1.0.58"
 
 futures = "0.3"
+toml = "0.8.12"
+serde = {version = "1.0.197", features =["derive"]}
 
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
