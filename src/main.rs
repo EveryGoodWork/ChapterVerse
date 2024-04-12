@@ -72,9 +72,8 @@ async fn main() {
                                 "!joinchannel" =>{                                                                         
                                     if let Some(display_name) = message.display_name {
                                         let mut config = Config::load(&display_name);
-                                        config.set_broadcaster(true);
-                                        config.add_note("!joinchannel".to_owned());
-                                        println!("Translation {}", config.account.bible.translation);
+
+                                        config.join_channel();
 
                                         let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
                                         match new_twitch_listener.clone().connect().await {

@@ -7,73 +7,77 @@ const CONFIGS_PATH: &str = "./channels";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
-    pub account: Account,
-    pub channel: Channel,
+    pub account: Option<Account>,
+    pub channel: Option<Channel>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Account {
-    pub username: String,
-    pub notes: String,
-    date_created: String,
-    date_modified: String,
-    joined_from: String,
-    pub bible: Bible,
-    pub metrics: Metrics,
+    pub username: Option<String>,
+    pub notes: Option<String>,
+    date_created: Option<String>,
+    date_modified: Option<String>,
+    joined_from: Option<String>,
+    pub bible: Option<Bible>,
+    pub metrics: Option<Metrics>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
-    pub notes: String,
-    broadcaster: bool,
-    pub bible: Bible,
-    pub metrics: Metrics,
+    pub notes: Option<String>,
+    broadcaster: Option<bool>,
+    date_joined: Option<String>,
+    pub bible: Option<Bible>,
+    pub metrics: Option<Metrics>,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bible {
-    pub translation: String,
-    pub last_verse: String,
-    pub votd: String,
+    pub translation: Option<String>,
+    pub last_verse: Option<String>,
+    pub votd: Option<String>,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Metrics {
-    pub scriptures: u32,
-    pub gospels: u32,
+    pub scriptures: Option<u32>,
+    pub gospels: Option<u32>,
 }
+
 impl Config {
     fn default(username: &str) -> Self {
-        // Get current time
-        let now = Utc::now();
+        let now = Utc::now().to_rfc3339();
         Config {
-            account: Account {
-                username: username.to_string(),
-                notes: String::new(),
-                date_created: now.to_rfc3339(),
-                date_modified: now.to_rfc3339(),
-                joined_from: String::new(),
-                bible: Bible {
-                    translation: String::new(),
-                    last_verse: String::new(),
-                    votd: String::new(),
-                },
-                metrics: Metrics {
-                    scriptures: 0,
-                    gospels: 0,
-                },
-            },
-            channel: Channel {
-                notes: String::new(),
-                broadcaster: false,
-                bible: Bible {
-                    translation: String::new(),
-                    last_verse: String::new(),
-                    votd: String::new(),
-                },
-                metrics: Metrics {
-                    scriptures: 0,
-                    gospels: 0,
-                },
-            },
+            account: Some(Account {
+                username: Some(username.to_string()),
+                notes: Some(String::new()),
+                date_created: Some(now.clone()),
+                date_modified: Some(now.clone()),
+                joined_from: Some(String::new()),
+                bible: Some(Bible {
+                    translation: Some(String::new()),
+                    last_verse: Some(String::new()),
+                    votd: Some(String::new()),
+                }),
+                metrics: Some(Metrics {
+                    scriptures: Some(0),
+                    gospels: Some(0),
+                }),
+            }),
+            channel: Some(Channel {
+                notes: Some(String::new()),
+                broadcaster: Some(false),
+                date_joined: Some(String::new()),
+                bible: Some(Bible {
+                    translation: Some(String::new()),
+                    last_verse: Some(String::new()),
+                    votd: Some(String::new()),
+                }),
+                metrics: Some(Metrics {
+                    scriptures: Some(0),
+                    gospels: Some(0),
+                }),
+            }),
         }
     }
 
@@ -89,47 +93,51 @@ impl Config {
             return Self::default(username);
         }
 
-        let content = fs::read_to_string(file_path);
-        match content {
-            Ok(content) => match toml::from_str::<Self>(&content) {
-                Ok(config) => config,
-                Err(_) => Self::default(username),
-            },
+        match fs::read_to_string(file_path) {
+            Ok(content) => {
+                toml::from_str::<Self>(&content).unwrap_or_else(|_| Self::default(username))
+            }
             Err(_) => Self::default(username),
         }
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = format!("./channels/{}.toml", self.account.username);
+        let file_path = format!(
+            "./channels/{}.toml",
+            self.account.as_ref().unwrap().username.as_ref().unwrap()
+        );
         let toml_string = toml::to_string(&self)?;
         fs::write(file_path, toml_string)?;
         Ok(())
     }
 
     pub fn add_note(&mut self, note: String) {
-        self.account.notes = format!(
-            "{} - {}\n{}",
-            Utc::now().to_rfc3339(),
-            note,
-            self.account.notes
-        );
-        self.account.date_modified = Utc::now().to_rfc3339();
-        if let Err(e) = self.save() {
-            eprintln!("Failed to save: {}", e);
+        if let Some(account) = &mut self.account {
+            let current_time = Utc::now().to_rfc3339();
+            let current_notes = account.notes.take().unwrap_or_default();
+            account.notes = Some(format!("{} - {}\n{}", current_time, note, current_notes));
+            account.date_modified = Some(current_time);
+            self.save()
+                .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
         }
     }
 
-    pub fn set_broadcaster(&mut self, broadcaster: bool) {
-        self.channel.broadcaster = broadcaster;
-        self.account.date_modified = Utc::now().to_rfc3339();
-        if let Err(e) = self.save() {
-            eprintln!("Failed to save: {}", e);
+    pub fn join_channel(&mut self) {
+        if let Some(channel) = &mut self.channel {
+            channel.broadcaster = Some(true);
+            channel.date_joined = Some(Utc::now().to_rfc3339());
+            self.add_note("!joinchannel".to_owned());
+            if let Some(account) = &mut self.account {
+                account.date_modified = Some(Utc::now().to_rfc3339());
+            }
+            self.save()
+                .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
         }
     }
 
     pub fn get_channels() -> Vec<String> {
-        let channels = read_dir(CONFIGS_PATH)
-            .unwrap()
+        read_dir(CONFIGS_PATH)
+            .unwrap_or_else(|_| panic!("Failed to read directory"))
             .filter_map(|entry| {
                 entry.ok().and_then(|e| {
                     let path = e.path();
@@ -139,19 +147,13 @@ impl Config {
                         fs::read_to_string(path).ok().and_then(|content| {
                             toml::from_str::<Config>(&content)
                                 .ok()
-                                .map(|config| config.account.username)
+                                .and_then(|config| config.account?.username)
                         })
                     } else {
                         None
                     }
                 })
             })
-            .collect::<Vec<_>>();
-
-        if channels.is_empty() {
-            panic!("No channels found");
-        }
-
-        channels
+            .collect()
     }
 }
