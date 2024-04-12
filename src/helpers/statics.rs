@@ -26,6 +26,7 @@ pub static ref BIBLES_REGEX: Regex = {
     Regex::new(&format!(r"(?i)\b({})\b", bible_names)).expect("Invalid regex pattern")
 };
 
+#[derive(Debug)]
 pub static ref CHANNELS_TO_JOIN: Vec<String> = Config::get_channels();
 
 pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {

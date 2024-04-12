@@ -128,7 +128,7 @@ impl Config {
     }
 
     pub fn get_channels() -> Vec<String> {
-        read_dir(CONFIGS_PATH)
+        let channels = read_dir(CONFIGS_PATH)
             .unwrap()
             .filter_map(|entry| {
                 entry.ok().and_then(|e| {
@@ -146,6 +146,12 @@ impl Config {
                     }
                 })
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        if channels.is_empty() {
+            panic!("No channels found");
+        }
+
+        channels
     }
 }

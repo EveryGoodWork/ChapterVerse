@@ -2,9 +2,11 @@ use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    Command,
+    PossibleCommand,
     PossibleScripture,
     NotScripture,
+    NotCommand,
+    Command,
     Scripture,
     Gospel,
     None,
@@ -73,7 +75,7 @@ impl MessageData {
         let text_to_lowercase = text.to_lowercase();
 
         if text_to_lowercase.starts_with("!") {
-            types.push(Type::Command);
+            types.push(Type::PossibleCommand);
         } else if text.to_lowercase().contains("gospel message") {
             types.push(Type::Gospel);
         } else if text_to_lowercase.contains(":") {
