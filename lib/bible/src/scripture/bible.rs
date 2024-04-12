@@ -1,4 +1,4 @@
-use regex;
+use regex::Regex;
 use std::collections::HashMap;
 
 #[derive(serde::Deserialize, Debug, Clone, PartialEq)]
@@ -11,29 +11,46 @@ pub struct Verse {
     pub scripture: String,
 }
 
-#[derive(Default)]
+// #[derive(Default)]
 pub struct Bible {
     index: HashMap<String, Verse>,
+    regex: Regex,
 }
 
 impl Bible {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            index: HashMap::new(),
+            regex: Regex::new(r"(?i)(\d?\s?[a-z]+\s?\d?)\s(\d+):(\d+)(?:-(\d+))?")
+                .expect("Invalid regex pattern"),
+        }
     }
 
     pub fn insert(&mut self, scripture: Verse) {
         self.index.insert(scripture.reference.clone(), scripture);
     }
-    pub fn get_scripture(&self, reference: &str) -> Option<Verse> {
-        let re = regex::Regex::new(r"^(\d?\s*\D+)(\d+):(\d+)$").unwrap();
-        if let Some(caps) = re.captures(reference) {
+    pub fn get_scripture(&self, reference: &str) -> Option<&Verse> {
+        // let regex = Regex::new(r"^(\d?\s*\D+)(\d+):(\d+)$").unwrap();
+        // let regex = Regex::new(r"(\d?\s*\D+?)\s*(\d+):(\d+)").unwrap();
+        // let regex = Regex::new(r"(?i)\b(\d?\s*[a-z]+(?:\s+[a-z]+)?)\s+(\d+):(\d+)").unwrap();
+        // let regex = Regex::new(r"(?i)(?:.*?\b)?(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?\s*\d*\s*[a-zA-Z]*\.?)\s*(\d+)[^\d]*(\d+)").unwrap();
+        // let regex = Regex::new(r"(?i)\b((?:1|2|3)?\s*[a-zA-Z]+\s*[a-zA-Z]*\s*\d+:\d+)(?:\s+[a-zA-Z]+)?").unwrap();
+        // let regex = Regex::new(r"(?i)\b((?:[123]\s*)?[a-zA-Z]+(?:\s+[a-zA-Z]+)?\s*\d+:\d+)(?:\s+\w+)?").unwrap();
+        // let regex = Regex::new(r"(?i)\b((?:[1-3]\s*)?[a-zA-Z]+\s*\d+:\d+)(?:\s+[a-zA-Z]+)?").unwrap();
+        // let regex = Regex::new(r"(?i)\b([1-3]?\s*[A-Za-z]+\s*[A-Za-z]*\s*\d+:\d+)(\s+[A-Za-z]+)?").unwrap();
+        // let regex = Regex::new(r"(?i)\b([1-3]?\s*[a-z]+\s*[a-z]*\s*\d+:\d+)(\s+\w+)?").unwrap();
+        // let regex = Regex::new(r"(?i)(\d?\s?[a-z]+\s?\d?)\s(\d+):(\d+)(?:-(\d+))?").unwrap();
+
+        if let Some(caps) = self.regex.captures(reference) {
             let book_abbr = caps.get(1).map_or("", |m| m.as_str()).trim();
             let chapter = caps.get(2).map_or("", |m| m.as_str());
-            let verse = caps.get(3).map_or("", |m| m.as_str());
+            let start_verse = caps.get(3).map_or("", |m| m.as_str());
+            // TODO! finishe it out to be start to end verse.
+            let _end_verse = caps.get(4).map_or("", |m| m.as_str());
             let book_name = Self::get_bible_book_name(book_abbr);
-            let formatted_ref = format!("{} {}:{}", book_name, chapter, verse);
+            let formatted_ref = format!("{} {}:{}", book_name, chapter, start_verse);
             if let Some(verse) = self.index.get(&formatted_ref) {
-                return Some(verse.clone());
+                return Some(verse);
             }
         }
         None

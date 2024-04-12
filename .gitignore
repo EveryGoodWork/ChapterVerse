@@ -17,3 +17,5 @@ Cargo.lock
 .env
 
 .vscode/launch.json
+
+channels/

@@ -15,11 +15,14 @@ use twitch::common::message_data::Type;
 
 use crate::helpers::config::Config;
 use crate::helpers::env_variables::get_env_variable;
+use crate::helpers::statics::find_bible;
 use crate::helpers::statics::BIBLES;
 use crate::helpers::statics::CHANNELS_TO_JOIN;
 use crate::helpers::statics::{EVANGELIO, EVANGELIUM, GOSPEL};
 
 mod helpers;
+
+const CHANNELS_PER_LISTENER: usize = 5;
 #[tokio::main]
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -38,11 +41,13 @@ async fn main() {
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
     let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
     let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
-    let mut rxreplier_clone = rxreplier;
-
-    const CHANNELS_PER_LISTENER: usize = 5;
+    let mut rxreplier_clone = rxreplier;    
+    
+    let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
+    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
+    let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
+    
     // Spawn a taslk to Listens for incoming Twitch messages.
-
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
             let mut reply: Option<String> = None;
@@ -53,18 +58,20 @@ async fn main() {
                         Type::None => (),
                         Type::Gospel => reply = Some(GOSPEL.to_string()),
                         Type::Command => {
-                            let command = message.text.as_str().to_lowercase();
+                            let command = &message.text.as_str().to_lowercase();
 
                             reply = match command.as_str() {
                                 // TODO!  Get the list of avaialble translations dynamically.
                                 "!help" => Some(" Available translations: AMP, ESV (default), KJV, NASB, NIV, NKJV, Web. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.".to_string()),
-                                "!joinchannel" =>{                                     
-                                    println!("Join a channel {}", message.channel);
-                                    let config: Config = Config::new();                                    
-                                    println!("Channel name: {}", config.channel_name().unwrap_or_else(|e| e.to_string()));
-                                    println!("Temp: {}", config.temp().unwrap_or_else(|e| e.to_string()));
-                                    
-                                    Some("Join a channel.".to_string())},
+                                "!joinchannel" =>{                                                                         
+                                    if let Some(display_name) = message.display_name {
+                                        let mut config = Config::load(&display_name);
+                                        config.set_broadcaster(true);
+                                        config.add_note("!joinchannel".to_string());
+                                        println!("Translation {}", config.account.bible.translation);
+                                    }                                                                    
+                                    Some(format!("Joined channel {}", message.display_name.unwrap_or_default()).to_string())},
+                                "!translation" => Some("Set perferred translation.".to_string()),
                                 "!votd" => Some("Display the verse of the day.".to_string()),
                                 "!random" => Some("Display a random verse.".to_string()),
                                 "!next" => Some("Go to the next item.".to_string()),
@@ -91,29 +98,17 @@ async fn main() {
                                 }
                                 _ => None,
                             };
-
-                            // if let Some(response) = reply {
-                            //     println!("Command: {}", response);
-                            //     let completed = message.complete();
-                            //     message.reply =
-                            //         Some(format!("{} - {:?}", response.to_string(), completed));
-                            //     if let Err(e) = txreplier.send(message.clone()) {
-                            //         eprintln!("Failed to send cloned message: {}", e);
-                            //     }
-                            // } else {
-                            //     println!("Unknown command.");
-                            // }
                         }
                         Type::PossibleScripture => {
                             // TODO! Pull bible preference from env or context of the request.
-                            let bible_name_to_use = "KJV";
-                            if let Some(bible_arc) = BIBLES.get(bible_name_to_use) {
+                            let bible_name_to_use = find_bible(&message.text);
+                            if let Some(bible_arc) = BIBLES.get(&bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
                                 reply = match bible.get_scripture(&message.text) {
                                     Some(verse) => {
                                         message.tags.push(Type::Scripture);
                                         let scripture =
-                                            format!("{} - {}", verse.scripture, verse.abbreviation);
+                                            format!("{} - {} {}", verse.scripture, verse.abbreviation, bible_name_to_use);
                                         Some(scripture)
                                     }
                                     None => {
@@ -159,13 +154,6 @@ async fn main() {
                     }
                 }
             }
-            // match message.complete() {
-            //     Ok(duration) => println!(
-            //         "Message processing duration: {:?}={:?}",
-            //         message.tags, duration
-            //     ),
-            //     Err(e) => eprintln!("Error calculating duration: {}", e),
-            // }
         }
     });
 
@@ -212,10 +200,6 @@ async fn main() {
             }
         }
     });
-
-    let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
-    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
-    let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
 
     // Spawn a task for replying to messages.
     tokio::spawn(async move {
