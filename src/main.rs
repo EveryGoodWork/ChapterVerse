@@ -39,16 +39,17 @@ async fn main() {
     }
 
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
+    let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
+    
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-    let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
-    let (txreplier, rxreplier) = mpsc::unbounded_channel::<MessageData>();
-    let mut rxreplier_clone = rxreplier;    
     
     let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
     let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
-    
-    // Spawn a taslk to Listens for incoming Twitch messages.
+        
+    let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
+    let twitch_replier = Arc::new(Listener::new(replier_transmitter.clone()));    
+    // Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
             let mut reply: Option<String> = None;
@@ -142,7 +143,7 @@ async fn main() {
                                     .ok()
                                     .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
                             ));
-                            if let Err(e) = txreplier.send(message.clone()) {
+                            if let Err(e) = twitch_replier.message_tx.send(message.clone()) {
                                 eprintln!("Failed to send message: {}", e);
                             }
                         }
@@ -156,11 +157,18 @@ async fn main() {
         }
     });
 
+
+    let listeners_clone = listeners.clone();
+    //let twitch_listener_clone = Arc::clone(&twitch_listener);
+    //let connections_listeners_clone = Arc::clone(&listener);
+    let move_listener_transmitter_clone = listener_transmitter.clone();
     // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
         loop {
-            let loop_listener_clone = Arc::clone(&twitch_listener);
-            match loop_listener_clone.clone().connect().await {
+            let new_twitch_listener = Arc::new(Listener::new(move_listener_transmitter_clone.clone()));
+            //let loop_listener_clone = Arc::clone(&connections_listeners_clone);
+            // TODO! - this looks like I'm creating this for no reason now that I'm doing the loop.  This needs to be refactored.
+        match new_twitch_listener.clone().connect().await {
                 Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
@@ -169,13 +177,13 @@ async fn main() {
                 }
             }
             for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
-                let twitch_listener = Arc::new(Listener::new(listener_transmitter.clone()));
-                let listeners_lock = listeners.lock();
+                let chuch_twitch_listener = Arc::new(Listener::new(move_listener_transmitter_clone.clone()));
+                let listeners_lock = listeners_clone.lock();
                 listeners_lock.await.insert(
-                    twitch_listener.username.to_string(),
-                    twitch_listener.clone(),
+                    chuch_twitch_listener.username.to_string(),
+                    chuch_twitch_listener.clone(),
                 );
-                match twitch_listener.clone().connect().await {
+                match chuch_twitch_listener.clone().connect().await {
                     Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
                     Err(e) => {
                         eprintln!("Failed to connect: {:?}", e);
@@ -185,7 +193,7 @@ async fn main() {
                 }
                 tokio::spawn(async move {
                     for channel in chunk {
-                        let twitch_listener_clone = Arc::clone(&twitch_listener); // Clone for each iteration
+                        let twitch_listener_clone = Arc::clone(&chuch_twitch_listener); // Clone for each iteration
                         let username = twitch_listener_clone.username.to_string();
                         match twitch_listener_clone.join_channel(channel).await {
                             Ok(_) => println!("{} Joined channel {}", username, channel),
@@ -194,7 +202,7 @@ async fn main() {
                     }
                 });
             }
-            while loop_listener_clone.clone().get_state() != WebSocketState::Disconnected {
+            while new_twitch_listener.clone().get_state() != WebSocketState::Disconnected {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         }
@@ -240,7 +248,7 @@ async fn main() {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             }
         }
-        while let Some(message) = rxreplier_clone.recv().await {
+        while let Some(message) = replier_receiver.recv().await {
             // TODO!  Find out about if I can remove these clones.
             let _ = loop_replier_clone
                 .clone()
