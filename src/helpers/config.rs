@@ -1,6 +1,9 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::fs::{self, read_dir};
+use std::path::Path;
+
+const CONFIGS_PATH: &str = "./channels";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -38,36 +41,6 @@ pub struct Metrics {
     pub gospels: u32,
 }
 impl Config {
-    pub fn load(username: &str) -> Self {
-        let path = "./channels";
-        if fs::create_dir_all(path).is_err() {
-            return Self::default(username);
-        }
-
-        let file_path = format!("{}/{}.toml", path, username);
-        let file_path = Path::new(&file_path);
-
-        if !file_path.exists() {
-            return Self::default(username);
-        }
-
-        let content = fs::read_to_string(file_path);
-        match content {
-            Ok(content) => match toml::from_str::<Self>(&content) {
-                Ok(config) => config,
-                Err(_) => Self::default(username),
-            },
-            Err(_) => Self::default(username),
-        }
-    }
-
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = format!("./channels/{}.toml", self.account.username);
-        let toml_string = toml::to_string(&self)?;
-        fs::write(file_path, toml_string)?;
-        Ok(())
-    }
-
     fn default(username: &str) -> Self {
         // Get current time
         let now = Utc::now();
@@ -103,6 +76,36 @@ impl Config {
             },
         }
     }
+
+    pub fn load(username: &str) -> Self {
+        if fs::create_dir_all(CONFIGS_PATH).is_err() {
+            return Self::default(username);
+        }
+
+        let file_path = format!("{}/{}.toml", CONFIGS_PATH, username);
+        let file_path = Path::new(&file_path);
+
+        if !file_path.exists() {
+            return Self::default(username);
+        }
+
+        let content = fs::read_to_string(file_path);
+        match content {
+            Ok(content) => match toml::from_str::<Self>(&content) {
+                Ok(config) => config,
+                Err(_) => Self::default(username),
+            },
+            Err(_) => Self::default(username),
+        }
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = format!("./channels/{}.toml", self.account.username);
+        let toml_string = toml::to_string(&self)?;
+        fs::write(file_path, toml_string)?;
+        Ok(())
+    }
+
     pub fn add_note(&mut self, note: String) {
         self.account.notes = format!(
             "{} - {}\n{}",
@@ -115,11 +118,34 @@ impl Config {
             eprintln!("Failed to save: {}", e);
         }
     }
+
     pub fn set_broadcaster(&mut self, broadcaster: bool) {
         self.channel.broadcaster = broadcaster;
         self.account.date_modified = Utc::now().to_rfc3339();
         if let Err(e) = self.save() {
             eprintln!("Failed to save: {}", e);
         }
+    }
+
+    pub fn get_channels() -> Vec<String> {
+        read_dir(CONFIGS_PATH)
+            .unwrap()
+            .filter_map(|entry| {
+                entry.ok().and_then(|e| {
+                    let path = e.path();
+                    if path.is_file()
+                        && path.extension().and_then(std::ffi::OsStr::to_str) == Some("toml")
+                    {
+                        fs::read_to_string(path).ok().and_then(|content| {
+                            toml::from_str::<Config>(&content)
+                                .ok()
+                                .map(|config| config.account.username)
+                        })
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
     }
 }

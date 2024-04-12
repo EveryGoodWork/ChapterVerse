@@ -23,6 +23,7 @@ use crate::helpers::statics::{EVANGELIO, EVANGELIUM, GOSPEL};
 mod helpers;
 
 const CHANNELS_PER_LISTENER: usize = 5;
+
 #[tokio::main]
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
@@ -82,7 +83,6 @@ async fn main() {
                                 "!status" => Some("Display current status.".to_string()),
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
-                                // TODO! This needs to be conbined into 1.
                                 "!gospel" => {
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
@@ -93,7 +93,6 @@ async fn main() {
                                 }
                                 "!evangelium" => {
                                     message.tags.push(Type::Gospel);
-                                    // TODO!  Add the other versions of the Gospel.
                                     Some(EVANGELIUM.to_string())
                                 }
                                 _ => None,
@@ -129,7 +128,7 @@ async fn main() {
                         }
                         _ => {
                             {
-                                //TODO! Handle other message types here if needed
+                                //Handle other message types here if needed
                             }
                         }
                     }

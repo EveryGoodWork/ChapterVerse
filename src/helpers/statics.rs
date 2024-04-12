@@ -1,3 +1,4 @@
+use crate::helpers::config::Config;
 use crate::helpers::env_variables::get_env_variable;
 use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
@@ -25,32 +26,8 @@ pub static ref BIBLES_REGEX: Regex = {
     Regex::new(&format!(r"(?i)\b({})\b", bible_names)).expect("Invalid regex pattern")
 };
 
-// TODO!  Pull this from file.
-pub static ref CHANNELS_TO_JOIN: Vec<String> = {
-    vec![
-        "chapterverse".to_string(),
-        "missionarygamer".to_string(),
-        "kcchurch".to_string(),
-        "madhelp".to_string(),
-        "streamintel".to_string(),
-        "carol_ai".to_string(),
-        "madmeshes".to_string(),
-        "linuxmountian".to_string(),
-        "host_ai".to_string(),
-        "twitchstreamintel".to_string(),
-        "FrankLayman".to_string(),
-        "Husky_Pup".to_string(),
-        "Spurgeon_AI".to_string(),
-        "Bob_AI".to_string(),
-        "ScatteredWisdom".to_string(),
-        "biblicalwisdom".to_string(),
-        "overlaygames_bot".to_string(),
-        "Guest_AI".to_string(),
-        "blipzak".to_string(),
-        "TodAIshow".to_string(),
-        "fireresistant".to_string(),
-    ]
-};
+pub static ref CHANNELS_TO_JOIN: Vec<String> = Config::get_channels();
+
 pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
 
             let import_bibles_path = get_env_variable("IMPORT_BIBLES_PATH", "bibles");
