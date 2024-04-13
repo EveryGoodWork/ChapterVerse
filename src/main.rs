@@ -72,10 +72,8 @@ async fn main() {
                                     Some(format!("HELP: Available translations: {}. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.", avaialble_bibles()).to_string())
                                 }
                                 "!joinchannel" => {
+                                    // TODO!  Handle not joining channels that have already been joined, as this results in two listeners being attached to the channel.
                                     message.tags.push(Type::Command);
-                                    let display_name = message
-                                        .display_name
-                                        .unwrap_or_else(|| "missing_display_name");
                                     let mut config = Config::load(&display_name);
                                     config.join_channel();
 
@@ -111,7 +109,6 @@ async fn main() {
                                 "!translation" => {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
-
                                     let translation = params[0].to_uppercase();
 
                                     if BIBLES.contains_key(&translation) {
@@ -119,7 +116,6 @@ async fn main() {
                                         config.add_note(
                                             format!("!translation {}", &translation).to_owned(),
                                         );
-
                                         Some(
                                             format!(
                                                 "Set perferred translation: {}.",
