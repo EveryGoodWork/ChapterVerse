@@ -75,36 +75,53 @@ async fn main() {
                                     // TODO!  Handle not joining channels that have already been joined, as this results in two listeners being attached to the channel.
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
-                                    config.join_channel();
-
-                                    let new_twitch_listener =
-                                        Arc::new(Listener::new(listener_transmitter_clone.clone()));
-                                    match new_twitch_listener.clone().connect().await {
-                                        Ok(_) => {
-                                            println!("Successfully connected. - Not Actually - it is in process");
-                                            let _ = new_twitch_listener
-                                                .clone()
-                                                .join_channel(display_name)
+                                    if !config.channel.as_ref().unwrap().date_joined.is_some() {
+                                        config.join_channel();
+                                        let new_twitch_listener = Arc::new(Listener::new(
+                                            listener_transmitter_clone.clone(),
+                                        ));
+                                        match new_twitch_listener.clone().connect().await {
+                                            Ok(_) => {
+                                                println!("Successfully connected. - Not Actually - it is in process");
+                                                let _ = new_twitch_listener
+                                                    .clone()
+                                                    .join_channel(display_name)
+                                                    .await;
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Failed to connect: {:?}", e);
+                                                tokio::time::sleep(
+                                                    tokio::time::Duration::from_secs(5),
+                                                )
                                                 .await;
+                                                continue;
+                                            }
                                         }
-                                        Err(e) => {
-                                            eprintln!("Failed to connect: {:?}", e);
-                                            tokio::time::sleep(tokio::time::Duration::from_secs(5))
-                                                .await;
-                                            continue;
-                                        }
-                                    }
-                                    let listeners_lock = listeners_clone.lock();
-                                    listeners_lock
-                                        .await
-                                        .insert(display_name.to_string(), new_twitch_listener);
-                                    Some(
-                                        format!(
-                                            "Joined channel {}",
-                                            message.display_name.unwrap_or_default()
+                                        let listeners_lock = listeners_clone.lock();
+                                        listeners_lock
+                                            .await
+                                            .insert(display_name.to_string(), new_twitch_listener);
+                                        Some(
+                                            format!(
+                                                "Joined channel {}",
+                                                message.display_name.unwrap_or_default()
+                                            )
+                                            .to_string(),
                                         )
-                                        .to_string(),
-                                    )
+                                    } else {
+                                        Some(
+                                            format!(
+                                                "Already joined {} on : {}",
+                                                message.display_name.unwrap_or_default(),
+                                                config
+                                                    .channel
+                                                    .unwrap()
+                                                    .date_joined
+                                                    .unwrap_or_default()
+                                            )
+                                            .to_string(),
+                                        )
+                                    }
                                 }
                                 "!translation" => {
                                     message.tags.push(Type::Command);

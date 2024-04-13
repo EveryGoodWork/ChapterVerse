@@ -25,8 +25,8 @@ pub struct Account {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
     pub notes: Option<String>,
-    broadcaster: Option<bool>,
-    date_joined: Option<String>,
+    pub broadcaster: Option<bool>,
+    pub date_joined: Option<String>,
     pub bible: Option<Bible>,
     pub metrics: Option<Metrics>,
 }
