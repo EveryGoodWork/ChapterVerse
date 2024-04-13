@@ -10,15 +10,12 @@ use tokio::sync::Mutex;
 use twitch::chat::client::WebSocketState;
 use twitch::chat::Listener;
 use twitch::chat::Replier;
-use twitch::common::message_data::MessageData;
-use twitch::common::message_data::Type;
+use twitch::common::message_data::{MessageData, Type};
 
-use crate::helpers::config::Config;
-use crate::helpers::env_variables::get_env_variable;
-use crate::helpers::statics::find_bible;
-use crate::helpers::statics::BIBLES;
-use crate::helpers::statics::CHANNELS_TO_JOIN;
-use crate::helpers::statics::{EVANGELIO, EVANGELIUM, GOSPEL};
+use helpers::config::Config;
+use helpers::env_variables::get_env_variable;
+use helpers::statics::{avaialble_bibles, find_bible};
+use helpers::statics::{BIBLES, CHANNELS_TO_JOIN, EVANGELIO, EVANGELIUM, GOSPEL};
 
 mod helpers;
 
@@ -40,27 +37,29 @@ async fn main() {
 
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
     let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
-    
+
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-    
+
     let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
     let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
-        
-    let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));    
+
+    let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
     // Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
             let mut reply: Option<String> = None;
+            let display_name = message.display_name.unwrap();
             let tags = message.tags.clone();
+
             if !tags.contains(&Type::Ignore) {
                 for tag in tags {
                     match tag {
                         Type::None => (),
                         Type::Gospel => reply = Some(GOSPEL.to_string()),
-                        Type::PossibleCommand => {                            
+                        Type::PossibleCommand => {
                             let input = &message.text.as_str().to_lowercase();
                             let mut parts = input.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
@@ -68,42 +67,76 @@ async fn main() {
 
                             reply = match command.as_str() {
                                 // TODO!  Get the list of avaialble translations dynamically.
-                                "!help" => Some(" Available translations: AMP, ESV (default), KJV, NASB, NIV, NKJV, Web. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.".to_string()),
-                                "!joinchannel" =>{                                                                         
-                                    if let Some(display_name) = message.display_name {
-                                        let mut config = Config::load(&display_name);
+                                "!help" => {
+                                    message.tags.push(Type::Command);
+                                    Some(format!("HELP: Available translations: {}. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.", avaialble_bibles()).to_string())
+                                }
+                                "!joinchannel" => {
+                                    message.tags.push(Type::Command);
+                                    let display_name = message
+                                        .display_name
+                                        .unwrap_or_else(|| "missing_display_name");
+                                    let mut config = Config::load(&display_name);
+                                    config.join_channel();
 
-                                        config.join_channel();
+                                    let new_twitch_listener =
+                                        Arc::new(Listener::new(listener_transmitter_clone.clone()));
+                                    match new_twitch_listener.clone().connect().await {
+                                        Ok(_) => {
+                                            println!("Successfully connected. - Not Actually - it is in process");
+                                            let _ = new_twitch_listener
+                                                .clone()
+                                                .join_channel(display_name)
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to connect: {:?}", e);
+                                            tokio::time::sleep(tokio::time::Duration::from_secs(5))
+                                                .await;
+                                            continue;
+                                        }
+                                    }
+                                    let listeners_lock = listeners_clone.lock();
+                                    listeners_lock
+                                        .await
+                                        .insert(display_name.to_string(), new_twitch_listener);
+                                    Some(
+                                        format!(
+                                            "Joined channel {}",
+                                            message.display_name.unwrap_or_default()
+                                        )
+                                        .to_string(),
+                                    )
+                                }
+                                "!translation" => {
+                                    message.tags.push(Type::Command);
+                                    let mut config = Config::load(&display_name);
 
-                                        let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
-                                        match new_twitch_listener.clone().connect().await {
-                                            Ok(_) => {
-                                                println!("Successfully connected. - Not Actually - it is in process");
-                                                let _ = new_twitch_listener.clone().join_channel(display_name).await;
-                                            },
-                                            Err(e) => {
-                                                eprintln!("Failed to connect: {:?}", e);
-                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                                continue;
-                                            }
-                                        }    
-                                        let listeners_lock = listeners_clone.lock();
-                                        listeners_lock.await.insert(
-                                            display_name.to_string(),
-                                            new_twitch_listener,
+                                    let translation = params[0].to_uppercase();
+
+                                    if BIBLES.contains_key(&translation) {
+                                        config.preferred_translation(&translation);
+                                        config.add_note(
+                                            format!("!translation {}", &translation).to_owned(),
                                         );
 
-                                        message.tags.push(Type::Command);                                    
-                                    }                                                                    
-                                    Some(format!("Joined channel {}", message.display_name.unwrap_or_default()).to_string())},
-                                "!translation" => {
-                                    if let Some(display_name) = message.display_name {
-                                    let mut config = Config::load(&display_name);
-                                    config.add_note(format!("!translation {}", params[0]).to_owned());
+                                        Some(
+                                            format!(
+                                                "Set perferred translation: {}.",
+                                                config.get_translation()
+                                            )
+                                            .to_string(),
+                                        )
+                                    } else {
+                                        Some(
+                                            format!(
+                                                "Available translations: {}.",
+                                                avaialble_bibles()
+                                            )
+                                            .to_string(),
+                                        )
                                     }
-                                    Some(format!("Set perferred translation: {}.", params[0]).to_string())
-                                    
-                                },
+                                }
                                 "!votd" => Some("Display the verse of the day.".to_string()),
                                 "!random" => Some("Display a random verse.".to_string()),
                                 "!next" => Some("Go to the next item.".to_string()),
@@ -129,19 +162,26 @@ async fn main() {
                                 _ => {
                                     message.tags.push(Type::NotCommand);
                                     None
-                                },
+                                }
                             };
                         }
                         Type::PossibleScripture => {
-                            // TODO! Pull bible preference from env or context of the request.
-                            let bible_name_to_use = find_bible(&message.text);
+                            let mut config = Config::load(&display_name);
+
+                            let bible_name_to_use =
+                                find_bible(&message.text, &config.get_translation());
+                            config.last_translation(&bible_name_to_use);
+
                             if let Some(bible_arc) = BIBLES.get(&bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
                                 reply = match bible.get_scripture(&message.text) {
                                     Some(verse) => {
                                         message.tags.push(Type::Scripture);
-                                        let scripture =
-                                            format!("{} - {} {}", verse.scripture, verse.abbreviation, bible_name_to_use);
+                                        let scripture = format!(
+                                            "{} - {} {}",
+                                            verse.scripture, verse.abbreviation, bible_name_to_use
+                                        );
+                                        config.last_verse(&verse.reference);
                                         Some(scripture)
                                     }
                                     None => {
@@ -179,7 +219,9 @@ async fn main() {
                                     .ok()
                                     .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
                             ));
-                            if let Err(e) = replier_transmitter_clone.message_tx.send(message.clone()) {
+                            if let Err(e) =
+                                replier_transmitter_clone.message_tx.send(message.clone())
+                            {
                                 eprintln!("Failed to send message: {}", e);
                             }
                         }
@@ -200,7 +242,7 @@ async fn main() {
         loop {
             let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
             // TODO! - this looks like I'm creating this for no reason now that I'm doing the loop.  This needs to be refactored.
-        match new_twitch_listener.clone().connect().await {
+            match new_twitch_listener.clone().connect().await {
                 Ok(_) => println!("Websocket connect OK..."),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
@@ -209,7 +251,8 @@ async fn main() {
                 }
             }
             for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
-                let chuch_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
+                let chuch_twitch_listener =
+                    Arc::new(Listener::new(listener_transmitter_clone.clone()));
                 let listeners_lock = listeners_clone.lock();
                 listeners_lock.await.insert(
                     chuch_twitch_listener.username.to_string(),

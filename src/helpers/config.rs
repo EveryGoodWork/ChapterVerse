@@ -33,7 +33,8 @@ pub struct Channel {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bible {
-    pub translation: Option<String>,
+    pub last_translation: Option<String>,
+    pub preferred_translation: Option<String>,
     pub last_verse: Option<String>,
     pub votd: Option<String>,
 }
@@ -55,9 +56,10 @@ impl Config {
                 date_modified: Some(now.clone()),
                 joined_from: Some(String::new()),
                 bible: Some(Bible {
-                    translation: Some(String::new()),
+                    last_translation: Some(String::new()),
                     last_verse: Some(String::new()),
                     votd: Some(String::new()),
+                    preferred_translation: Some(String::new()),
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
@@ -69,9 +71,10 @@ impl Config {
                 broadcaster: Some(false),
                 date_joined: Some(String::new()),
                 bible: Some(Bible {
-                    translation: Some(String::new()),
+                    last_translation: Some(String::new()),
                     last_verse: Some(String::new()),
                     votd: Some(String::new()),
+                    preferred_translation: Some(String::new()),
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
@@ -133,6 +136,53 @@ impl Config {
             self.save()
                 .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
         }
+    }
+    pub fn last_verse(&mut self, verse: &str) {
+        if let Some(account) = &mut self.account {
+            if let Some(bible) = &mut account.bible {
+                bible.last_verse = Some(verse.to_string());
+            }
+            account.date_modified = Some(Utc::now().to_rfc3339());
+        }
+        self.save()
+            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+    }
+
+    pub fn get_translation(&self) -> String {
+        self.account
+            .as_ref()
+            .and_then(|acc| {
+                acc.bible.as_ref().and_then(|bible| {
+                    bible
+                        .preferred_translation
+                        .clone()
+                        .or_else(|| bible.last_translation.clone())
+                })
+            })
+            .unwrap_or_else(|| "NONE".to_string())
+    }
+
+    pub fn last_translation(&mut self, translation: &str) {
+        if let Some(account) = &mut self.account {
+            if let Some(bible) = &mut account.bible {
+                bible.last_translation = Some(translation.to_string());
+            }
+            account.date_modified = Some(Utc::now().to_rfc3339());
+        }
+        self.add_note(format!("!translation {}", translation));
+        self.save()
+            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+    }
+    pub fn preferred_translation(&mut self, translation: &str) {
+        if let Some(account) = &mut self.account {
+            if let Some(bible) = &mut account.bible {
+                bible.preferred_translation = Some(translation.to_string());
+            }
+            account.date_modified = Some(Utc::now().to_rfc3339());
+        }
+        self.add_note(format!("!translation {}", translation));
+        self.save()
+            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
     }
 
     pub fn get_channels() -> Vec<String> {
