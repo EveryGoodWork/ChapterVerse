@@ -8,12 +8,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{env, fs};
 
-pub fn find_bible(input: &str, default: &str) -> String {
+pub fn find_bible(input: String, default: String) -> String {
     BIBLES_REGEX
-        .find(input)
+        .find(&input)
         .map(|m| m.as_str().to_uppercase())
-        .unwrap_or_else(|| default.to_string())
+        .unwrap_or_else(|| default)
 }
+
 pub fn avaialble_bibles() -> String {
     BIBLES
         .keys()

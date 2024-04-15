@@ -344,6 +344,11 @@ impl WebSocket {
         self.join_pending_channels().await;
     }
 
+    pub async fn leave_channel(self: Arc<Self>, channel_name: &str) {
+        self.send_command(&format!("PART #{}", channel_name.to_lowercase()))
+            .await;
+    }
+
     pub async fn join_pending_channels(self: Arc<Self>) {
         println!("WebSocketState: {:?}", self.get_state());
 

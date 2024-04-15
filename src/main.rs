@@ -52,6 +52,7 @@ async fn main() {
         while let Some(mut message) = listener_reciever.recv().await {
             let mut reply: Option<String> = None;
             let display_name = message.display_name.unwrap();
+            let message_text = message.text.to_string();
             let tags = message.tags.clone();
 
             if !tags.contains(&Type::Ignore) {
@@ -60,23 +61,22 @@ async fn main() {
                         Type::None => (),
                         Type::Gospel => reply = Some(GOSPEL.to_string()),
                         Type::PossibleCommand => {
-                            let input = &message.text.as_str().to_lowercase();
+                            let input = &message_text.as_str().to_lowercase();
                             let mut parts = input.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
                             let params: Vec<String> = parts.map(|s| s.to_string()).collect();
 
                             reply = match command.as_str() {
-                                // TODO!  Get the list of avaialble translations dynamically.
                                 "!help" => {
                                     message.tags.push(Type::Command);
                                     Some(format!("HELP: Available translations: {}. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.", avaialble_bibles()).to_string())
                                 }
                                 "!joinchannel" => {
-                                    // TODO!  Handle not joining channels that have already been joined, as this results in two listeners being attached to the channel.
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
-                                    if !config.channel.as_ref().unwrap().date_joined.is_some() {
-                                        config.join_channel();
+
+                                    if !config.channel.as_ref().unwrap().active.unwrap_or(false) {
+                                        config.join_channel(message.channel.to_string());
                                         let new_twitch_listener = Arc::new(Listener::new(
                                             listener_transmitter_clone.clone(),
                                         ));
@@ -103,7 +103,7 @@ async fn main() {
                                             .insert(display_name.to_string(), new_twitch_listener);
                                         Some(
                                             format!(
-                                                "Joined channel {}",
+                                                "Praise God, we have a new user of ChapterVerse, {}! ChapterVerse has joined your channel, type !help for list of available commands. Isaiah 55:1 - So shall My word be that goes forth from My mouth; It shall not return to Me void But it shall accomplish what I please And it shall prosper in the thing for which I sent it.",
                                                 message.display_name.unwrap_or_default()
                                             )
                                             .to_string(),
@@ -111,13 +111,10 @@ async fn main() {
                                     } else {
                                         Some(
                                             format!(
-                                                "Already joined {} on : {}",
+                                                "Already joined {} from {} on : {}",
                                                 message.display_name.unwrap_or_default(),
-                                                config
-                                                    .channel
-                                                    .unwrap()
-                                                    .date_joined
-                                                    .unwrap_or_default()
+                                                config.from_channel(),
+                                                config.join_date()
                                             )
                                             .to_string(),
                                         )
@@ -136,7 +133,7 @@ async fn main() {
                                         Some(
                                             format!(
                                                 "Set perferred translation: {}.",
-                                                config.get_translation()
+                                                config.get_translation().unwrap()
                                             )
                                             .to_string(),
                                         )
@@ -154,7 +151,29 @@ async fn main() {
                                 "!random" => Some("Display a random verse.".to_string()),
                                 "!next" => Some("Go to the next item.".to_string()),
                                 "!previous" => Some("Go to the previous item.".to_string()),
-                                "!leavechannel" => Some("Leave the current channel.".to_string()),
+                                "!leavechannel" => {
+                                    message.tags.push(Type::Command);
+                                    let mut config = Config::load(&display_name);
+                                    config.leave_channel();
+
+                                    let listeners_lock = listeners_clone.lock();
+                                    for (_key, listener) in listeners_lock.await.iter() {
+                                        match listener.leave_channel(&display_name).await {
+                                            Ok(_) => (),
+                                            Err(e) => eprintln!(
+                                                "Error leaving channel {}: {}",
+                                                display_name, e
+                                            ),
+                                        }
+                                    }
+                                    Some(
+                                        format!(
+                                            "ChapterVerse has left the {} channel.",
+                                            &display_name
+                                        )
+                                        .to_string(),
+                                    )
+                                }
                                 "!myinfo" => Some("Display user's information.".to_string()),
                                 "!support" => Some("Display support options.".to_string()),
                                 "!status" => Some("Display current status.".to_string()),
@@ -180,9 +199,12 @@ async fn main() {
                         }
                         Type::PossibleScripture => {
                             let mut config = Config::load(&display_name);
+                            let perferred_translation = config
+                                .get_translation()
+                                .unwrap_or_else(|| "KJV".to_string());
 
                             let bible_name_to_use =
-                                find_bible(&message.text, &config.get_translation());
+                                find_bible(message_text.to_string(), perferred_translation);
                             config.last_translation(&bible_name_to_use);
 
                             if let Some(bible_arc) = BIBLES.get(&bible_name_to_use) {
@@ -199,7 +221,6 @@ async fn main() {
                                     }
                                     None => {
                                         message.tags.push(Type::NotScripture);
-                                        //Some("Verse not found".to_string())
                                         None
                                     }
                                 };
