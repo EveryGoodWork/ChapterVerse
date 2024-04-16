@@ -1,5 +1,6 @@
 use bible::scripture::bible::Bible;
 use helpers::print_color::PrintCommand;
+use helpers::response_builder::ResponseBuilder;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
@@ -20,6 +21,10 @@ use helpers::statics::{BIBLES, CHANNELS_TO_JOIN, EVANGELIO, EVANGELIUM, GOSPEL};
 mod helpers;
 
 const CHANNELS_PER_LISTENER: usize = 5;
+// TODO! Remove the debug deduction for the (7.7118ms) - 10 characters
+const REPLY_CHARACTER_LIMIT: usize = 500 - 10;
+// The only reason we use KJV as default is because it's free to use from copywrite restrictions.
+const DEFAULT_TRANSLATION: &str = "KJV";
 
 #[tokio::main]
 async fn main() {
@@ -55,7 +60,8 @@ async fn main() {
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
-    // Spawn a task to Listens for incoming Twitch messages.
+
+    // **Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
             let mut reply: Option<String> = None;
@@ -69,8 +75,8 @@ async fn main() {
                         Type::None => (),
                         Type::Gospel => reply = Some(GOSPEL.to_string()),
                         Type::PossibleCommand => {
-                            let input = &message_text.as_str().to_lowercase();
-                            let mut parts = input.split_whitespace();
+                            let message_text_lowercase = &message_text.as_str().to_lowercase();
+                            let mut parts = message_text_lowercase.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
                             let params: Vec<String> = parts.map(|s| s.to_string()).collect();
 
@@ -209,64 +215,32 @@ async fn main() {
                             let mut config = Config::load(&display_name);
                             let perferred_translation = config
                                 .get_translation()
-                                .unwrap_or_else(|| "KJV".to_string());
+                                .unwrap_or_else(|| DEFAULT_TRANSLATION.to_string());
 
                             let bible_name_to_use =
-                                find_bible(message_text.to_string(), perferred_translation);
+                                find_bible(message_text.to_string(), &perferred_translation);
                             config.last_translation(&bible_name_to_use);
 
                             if let Some(bible_arc) = BIBLES.get(&bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
-                                // TODO Refactor this into a seperate function.
-                                // TODO Refactor this to handle the 500 character limit, this includes the reply username.
-                                // TODO Refactor to handle a single entry.
                                 reply = {
                                     let verses = bible.get_scripture(&message.text);
-                                    if !verses.is_empty() {
-                                        message.tags.push(Type::Scripture);
-                                        let scriptures = verses
-                                            .iter()
-                                            .map(|verse| format!("{}", verse.scripture))
-                                            .collect::<Vec<_>>()
-                                            .join(" ");
-
-                                        let start_verse = verses.first().unwrap().verse;
-                                        let end_verse = verses.last().unwrap().verse;
-                                        let left_side = verses
-                                            .last()
-                                            .unwrap()
-                                            .abbreviation
-                                            .split(':')
-                                            .next()
-                                            .unwrap_or("");
-
-                                        let full_scripture = if start_verse == end_verse {
-                                            format!(
-                                                "{} - {}:{} {}",
-                                                scriptures,
-                                                left_side,
-                                                start_verse,
-                                                bible_name_to_use
-                                            )
-                                        } else {
-                                            format!(
-                                                "{} - {}:{}-{} {}",
-                                                scriptures,
-                                                left_side,
-                                                start_verse,
-                                                end_verse,
-                                                bible_name_to_use
-                                            )
-                                        };
-
-                                        config.last_verse(&verses.last().unwrap().reference);
-                                        Some(full_scripture)
-                                    } else {
+                                    if verses.is_empty() {
                                         message.tags.push(Type::NotScripture);
                                         None
+                                    } else {
+                                        //@MissionaryGamer + 1 extra space because the name is included in the text that can't exceed 500.
+                                        let adjusted_character_limit = REPLY_CHARACTER_LIMIT
+                                            - (message.display_name.unwrap().len() + 1);
+                                        config.last_verse(&verses.last().unwrap().reference);
+                                        let response_output = ResponseBuilder::build(
+                                            &verses,
+                                            adjusted_character_limit,
+                                            &perferred_translation,
+                                        );
+                                        Some(response_output.truncated) // Assuming `to_string` converts ResponseOutput to String
                                     }
                                 };
-
                                 PrintCommand::Info.print_message(
                                     &format!(
                                         "Bible {}, {:?}",
