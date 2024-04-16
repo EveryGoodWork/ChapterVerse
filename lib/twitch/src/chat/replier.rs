@@ -24,14 +24,17 @@ impl Replier {
             .expect("Failed to connect");
         Ok(())
     }
+
     pub async fn join_channel(self: Arc<Self>, channel_name: &str) -> Result<(), &'static str> {
         println!("Replier join_channel: {}", channel_name);
         self.websocket.clone().join_channel(channel_name).await;
         Ok(())
     }
+
     pub fn get_state(&self) -> WebSocketState {
         self.websocket.get_state()
     }
+
     pub async fn send_message(
         self: Arc<Self>,
         channel_name: &str,
@@ -40,13 +43,13 @@ impl Replier {
         let message_data = MessageData {
             channel: channel_name.to_string(),
             text: message_text.to_string(),
-            // TODO! Determine if this should be done here, or if this is a reply to an existing message to use it's Settings.
-            raw_message: format!("PRIVMSG #{} :{}\r\n", channel_name, message_text),
             ..MessageData::default()
         };
-        //println!("*DEBUG SendMessage: {:?}", message_data);
-        self.websocket.clone().send_message(message_data).await;
-
+        self.websocket.send_message(message_data).await;
         Ok(())
+    }
+
+    pub async fn reply_message(self: Arc<Self>, message: MessageData) {
+        self.websocket.send_message(message).await;
     }
 }
