@@ -29,31 +29,29 @@ impl Bible {
     pub fn insert(&mut self, scripture: Verse) {
         self.index.insert(scripture.reference.clone(), scripture);
     }
-    pub fn get_scripture(&self, reference: &str) -> Option<&Verse> {
-        // let regex = Regex::new(r"^(\d?\s*\D+)(\d+):(\d+)$").unwrap();
-        // let regex = Regex::new(r"(\d?\s*\D+?)\s*(\d+):(\d+)").unwrap();
-        // let regex = Regex::new(r"(?i)\b(\d?\s*[a-z]+(?:\s+[a-z]+)?)\s+(\d+):(\d+)").unwrap();
-        // let regex = Regex::new(r"(?i)(?:.*?\b)?(\d?\s*[a-zA-Z]+(?:\s+[a-zA-Z]+)?\s*\d*\s*[a-zA-Z]*\.?)\s*(\d+)[^\d]*(\d+)").unwrap();
-        // let regex = Regex::new(r"(?i)\b((?:1|2|3)?\s*[a-zA-Z]+\s*[a-zA-Z]*\s*\d+:\d+)(?:\s+[a-zA-Z]+)?").unwrap();
-        // let regex = Regex::new(r"(?i)\b((?:[123]\s*)?[a-zA-Z]+(?:\s+[a-zA-Z]+)?\s*\d+:\d+)(?:\s+\w+)?").unwrap();
-        // let regex = Regex::new(r"(?i)\b((?:[1-3]\s*)?[a-zA-Z]+\s*\d+:\d+)(?:\s+[a-zA-Z]+)?").unwrap();
-        // let regex = Regex::new(r"(?i)\b([1-3]?\s*[A-Za-z]+\s*[A-Za-z]*\s*\d+:\d+)(\s+[A-Za-z]+)?").unwrap();
-        // let regex = Regex::new(r"(?i)\b([1-3]?\s*[a-z]+\s*[a-z]*\s*\d+:\d+)(\s+\w+)?").unwrap();
-        // let regex = Regex::new(r"(?i)(\d?\s?[a-z]+\s?\d?)\s(\d+):(\d+)(?:-(\d+))?").unwrap();
-
+    pub fn get_scripture(&self, reference: &str) -> Vec<Verse> {
+        let mut verses = Vec::new();
         if let Some(caps) = self.regex.captures(reference) {
             let book_abbr = caps.get(1).map_or("", |m| m.as_str()).trim();
             let chapter = caps.get(2).map_or("", |m| m.as_str());
-            let start_verse = caps.get(3).map_or("", |m| m.as_str());
-            // TODO! finishe it out to be start to end verse.
-            let _end_verse = caps.get(4).map_or("", |m| m.as_str());
-            let book_name = Self::get_bible_book_name(book_abbr);
-            let formatted_ref = format!("{} {}:{}", book_name, chapter, start_verse);
-            if let Some(verse) = self.index.get(&formatted_ref) {
-                return Some(verse);
+            let start_verse = caps
+                .get(3)
+                .map_or(0, |m| m.as_str().parse::<u8>().unwrap_or(0));
+            let end_verse = caps.get(4).map_or(start_verse, |m| {
+                m.as_str().parse::<u8>().unwrap_or(start_verse)
+            });
+
+            if start_verse > 0 && end_verse >= start_verse {
+                let book_name = Self::get_bible_book_name(book_abbr);
+                for verse_num in start_verse..=end_verse {
+                    let formatted_ref = format!("{} {}:{}", book_name, chapter, verse_num);
+                    if let Some(verse) = self.index.get(&formatted_ref) {
+                        verses.push(verse.clone());
+                    }
+                }
             }
         }
-        None
+        verses
     }
 
     pub fn len(&self) -> usize {

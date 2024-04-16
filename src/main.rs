@@ -29,9 +29,17 @@ async fn main() {
     for (bible_name, bible_arc) in BIBLES.iter() {
         let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
         let scripture = match bible.get_scripture("2 Timothy 3:16") {
-            Some(verse) => format!("{}", verse.scripture),
-            None => "Verse not found".to_string(),
+            verses if !verses.is_empty() => {
+                let scriptures = verses
+                    .iter()
+                    .map(|verse| verse.scripture.clone())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                scriptures
+            }
+            _ => "Verse not found".to_string(),
         };
+
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
@@ -209,21 +217,56 @@ async fn main() {
 
                             if let Some(bible_arc) = BIBLES.get(&bible_name_to_use) {
                                 let bible: &Bible = &*bible_arc;
-                                reply = match bible.get_scripture(&message.text) {
-                                    Some(verse) => {
+                                // TODO Refactor this into a seperate function.
+                                // TODO Refactor this to handle the 500 character limit, this includes the reply username.
+                                // TODO Refactor to handle a single entry.
+                                reply = {
+                                    let verses = bible.get_scripture(&message.text);
+                                    if !verses.is_empty() {
                                         message.tags.push(Type::Scripture);
-                                        let scripture = format!(
-                                            "{} - {} {}",
-                                            verse.scripture, verse.abbreviation, bible_name_to_use
-                                        );
-                                        config.last_verse(&verse.reference);
-                                        Some(scripture)
-                                    }
-                                    None => {
+                                        let scriptures = verses
+                                            .iter()
+                                            .map(|verse| format!("{}", verse.scripture))
+                                            .collect::<Vec<_>>()
+                                            .join(" ");
+
+                                        let start_verse = verses.first().unwrap().verse;
+                                        let end_verse = verses.last().unwrap().verse;
+                                        let left_side = verses
+                                            .last()
+                                            .unwrap()
+                                            .abbreviation
+                                            .split(':')
+                                            .next()
+                                            .unwrap_or("");
+
+                                        let full_scripture = if start_verse == end_verse {
+                                            format!(
+                                                "{} - {}:{} {}",
+                                                scriptures,
+                                                left_side,
+                                                start_verse,
+                                                bible_name_to_use
+                                            )
+                                        } else {
+                                            format!(
+                                                "{} - {}:{}-{} {}",
+                                                scriptures,
+                                                left_side,
+                                                start_verse,
+                                                end_verse,
+                                                bible_name_to_use
+                                            )
+                                        };
+
+                                        config.last_verse(&verses.last().unwrap().reference);
+                                        Some(full_scripture)
+                                    } else {
                                         message.tags.push(Type::NotScripture);
                                         None
                                     }
                                 };
+
                                 PrintCommand::Info.print_message(
                                     &format!(
                                         "Bible {}, {:?}",
