@@ -73,7 +73,11 @@ async fn main() {
                 for tag in tags {
                     match tag {
                         Type::None => (),
-                        Type::Gospel => reply = Some(GOSPEL.to_string()),
+                        Type::Gospel => {
+                            let mut config = Config::load(&display_name);
+                            config.add_account_metrics_gospel_english();
+                            reply = Some(GOSPEL.to_string())
+                        }
                         Type::PossibleCommand => {
                             let message_text_lowercase = &message_text.as_str().to_lowercase();
                             let mut parts = message_text_lowercase.split_whitespace();
@@ -194,18 +198,25 @@ async fn main() {
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
                                 "!gospel" => {
+                                    let mut config = Config::load(&display_name);
+                                    config.add_account_metrics_gospel_english();
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
                                 }
                                 "!evangelio" => {
+                                    let mut config = Config::load(&display_name);
+                                    config.add_account_metrics_gospel_spanish();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIO.to_string())
                                 }
                                 "!evangelium" => {
+                                    let mut config = Config::load(&display_name);
+                                    config.add_account_metrics_gospel_german();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIUM.to_string())
                                 }
                                 _ => {
+                                    // TODO - might be a scripture so possibly check it against that function.
                                     message.tags.push(Type::NotCommand);
                                     None
                                 }
@@ -232,13 +243,16 @@ async fn main() {
                                         //@MissionaryGamer + 1 extra space because the name is included in the text that can't exceed 500.
                                         let adjusted_character_limit = REPLY_CHARACTER_LIMIT
                                             - (message.display_name.unwrap().len() + 1);
-                                        config.last_verse(&verses.last().unwrap().reference);
                                         let response_output = ResponseBuilder::build(
                                             &verses,
                                             adjusted_character_limit,
                                             &perferred_translation,
                                         );
-                                        Some(response_output.truncated) // Assuming `to_string` converts ResponseOutput to String
+                                        config.set_last_verse(&verses.last().unwrap().reference);
+                                        // TODO!  Add response_output.remainder to config.
+                                        config.add_account_metrics_scriptures();
+                                        message.tags.push(Type::Scripture);
+                                        Some(response_output.truncated)
                                     }
                                 };
                                 PrintCommand::Info.print_message(
@@ -263,7 +277,7 @@ async fn main() {
                             // TODO!  This is where I'll put the configuration update.
                             println!("Tages: {:?}", message.tags);
                             message.reply = Some(format!(
-                                "{} ({})",
+                                "{} ({}ms)",
                                 reply_value,
                                 message
                                     .complete()
@@ -277,7 +291,7 @@ async fn main() {
                             }
                         }
                         None => {
-                            println!("NONE: {:?}", reply);
+                            println!("Tages: {:?}", message.tags);
                             let _ = message.complete();
                         }
                     }

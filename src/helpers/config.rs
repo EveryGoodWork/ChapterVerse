@@ -39,13 +39,16 @@ pub struct Bible {
     pub last_translation: Option<String>,
     pub preferred_translation: Option<String>,
     pub last_verse: Option<String>,
+    pub pending_text: Option<String>,
     pub votd: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Metrics {
     pub scriptures: Option<u32>,
-    pub gospels: Option<u32>,
+    pub gospels_english: Option<u32>,
+    pub gospels_spanish: Option<u32>,
+    pub gospels_german: Option<u32>,
 }
 
 impl Config {
@@ -61,12 +64,15 @@ impl Config {
                 bible: Some(Bible {
                     last_translation: Some(String::new()),
                     last_verse: Some(String::new()),
+                    pending_text: Some(String::new()),
                     votd: Some(String::new()),
                     preferred_translation: Some(String::new()),
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
-                    gospels: Some(0),
+                    gospels_english: Some(0),
+                    gospels_spanish: Some(0),
+                    gospels_german: Some(0),
                 }),
             }),
             channel: Some(Channel {
@@ -78,12 +84,15 @@ impl Config {
                 bible: Some(Bible {
                     last_translation: Some(String::new()),
                     last_verse: Some(String::new()),
+                    pending_text: Some(String::new()),
                     votd: Some(String::new()),
                     preferred_translation: Some(String::new()),
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
-                    gospels: Some(0),
+                    gospels_english: Some(0),
+                    gospels_spanish: Some(0),
+                    gospels_german: Some(0),
                 }),
             }),
         }
@@ -111,13 +120,29 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let username = self.account.as_ref().unwrap().username.as_ref().unwrap();
+    pub fn save(&self) {
+        let username = match self.account.as_ref().and_then(|a| a.username.as_ref()) {
+            Some(username) => username,
+            None => {
+                eprintln!("Account or username is missing.");
+                return;
+            }
+        };
+
         let sanitized_username = sanitize_filename::sanitize(username);
         let file_path = format!("{}/{}.toml", CONFIGS_PATH, sanitized_username);
-        let toml_string = toml::to_string(&self)?;
-        fs::write(file_path, toml_string)?;
-        Ok(())
+
+        let toml_string = match toml::to_string(&self) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Failed to serialize: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = fs::write(file_path, toml_string) {
+            eprintln!("Failed to write to file: {}", e);
+        }
     }
 
     pub fn add_note(&mut self, note: String) {
@@ -126,8 +151,7 @@ impl Config {
             let current_notes = account.notes.take().unwrap_or_default();
             account.notes = Some(format!("{} - {}\n{}", current_time, note, current_notes));
             account.modified_date = Some(current_time);
-            self.save()
-                .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+            self.save();
         }
     }
 
@@ -142,7 +166,6 @@ impl Config {
                 account.modified_date = Some(Utc::now().to_rfc3339());
             }
             self.save()
-                .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
         }
     }
 
@@ -154,20 +177,18 @@ impl Config {
             if let Some(account) = &mut self.account {
                 account.modified_date = Some(Utc::now().to_rfc3339());
             }
-            self.save()
-                .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+            self.save();
         }
     }
 
-    pub fn last_verse(&mut self, verse: &str) {
+    pub fn set_last_verse(&mut self, verse: &str) {
         if let Some(account) = &mut self.account {
             if let Some(bible) = &mut account.bible {
                 bible.last_verse = Some(verse.to_string());
+                account.modified_date = Some(Utc::now().to_rfc3339());
+                self.save();
             }
-            account.modified_date = Some(Utc::now().to_rfc3339());
         }
-        self.save()
-            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
     }
 
     pub fn get_translation(&self) -> Option<String> {
@@ -189,8 +210,7 @@ impl Config {
             }
             account.modified_date = Some(Utc::now().to_rfc3339());
         }
-        self.save()
-            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+        self.save();
     }
 
     pub fn preferred_translation(&mut self, translation: &str) {
@@ -201,8 +221,7 @@ impl Config {
             account.modified_date = Some(Utc::now().to_rfc3339());
         }
         self.add_note(format!("!translation {}", translation));
-        self.save()
-            .unwrap_or_else(|e| eprintln!("Failed to save: {}", e));
+        self.save();
     }
 
     pub fn get_channels() -> Vec<String> {
@@ -230,16 +249,71 @@ impl Config {
             })
             .collect()
     }
+
     pub fn from_channel(&self) -> String {
         self.channel
             .as_ref()
             .and_then(|c| c.from_channel.clone())
             .unwrap_or_default()
     }
+
     pub fn join_date(&self) -> String {
         self.channel
             .as_ref()
             .and_then(|c| c.join_date.clone())
             .unwrap_or_default()
+    }
+
+    pub fn add_account_metrics_gospel_english(&mut self) {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(metrics) = account.metrics.as_mut() {
+                if let Some(gospels_english) = metrics.gospels_english.as_mut() {
+                    *gospels_english += 1;
+                } else {
+                    metrics.gospels_english = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+
+    pub fn add_account_metrics_gospel_spanish(&mut self) {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(metrics) = account.metrics.as_mut() {
+                if let Some(gospels_spanish) = metrics.gospels_spanish.as_mut() {
+                    *gospels_spanish += 1;
+                } else {
+                    metrics.gospels_spanish = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+
+    pub fn add_account_metrics_gospel_german(&mut self) {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(metrics) = account.metrics.as_mut() {
+                if let Some(gospels_german) = metrics.gospels_german.as_mut() {
+                    *gospels_german += 1;
+                } else {
+                    metrics.gospels_german = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+    pub fn add_account_metrics_scriptures(&mut self) {
+        let success = self
+            .account
+            .as_mut()
+            .and_then(|acc| acc.metrics.as_mut())
+            .and_then(|mtr| mtr.scriptures.as_mut())
+            .map(|scriptures| {
+                *scriptures += 1;
+            })
+            .is_some();
+        if success {
+            self.save();
+        }
     }
 }

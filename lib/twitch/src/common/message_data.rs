@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -86,10 +86,11 @@ impl MessageData {
         types
     }
 
-    pub fn complete(&self) -> Result<Duration, &'static str> {
+    pub fn complete(&self) -> Result<u128, &'static str> {
         SystemTime::now()
             .duration_since(self.received)
             .map_err(|_| "Time went backwards")
+            .map(|dur| dur.as_millis()) // Convert Duration to milliseconds
     }
 
     pub fn new(raw: &str) -> Option<Self> {
