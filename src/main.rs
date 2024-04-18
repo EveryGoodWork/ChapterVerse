@@ -54,7 +54,7 @@ async fn main() {
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
 
     let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
-    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
+    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
     let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
 
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
