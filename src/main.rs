@@ -246,7 +246,7 @@ async fn main() {
                                         let response_output = ResponseBuilder::build(
                                             &verses,
                                             adjusted_character_limit,
-                                            &perferred_translation,
+                                            &bible_name_to_use,
                                         );
                                         config.set_last_verse(&verses.last().unwrap().reference);
                                         // TODO!  Add response_output.remainder to config.

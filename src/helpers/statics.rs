@@ -9,21 +9,6 @@ use std::sync::Arc;
 use std::{env, fs};
 use tokio::time::Instant;
 
-pub fn find_bible(input: String, default: &String) -> String {
-    // TODO:  BUG not returning the specified version.
-    BIBLES_REGEX
-        .find(&input)
-        .map(|m| m.as_str().to_uppercase())
-        .unwrap_or_else(|| default.to_string())
-}
-
-pub fn avaialble_bibles() -> String {
-    BIBLES
-        .keys()
-        .map(|key| key.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 lazy_static! {
 
 pub static ref GOSPEL: String = "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"".to_string();
@@ -95,13 +80,18 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             Arc::new(bibles)
         };
     }
-#[allow(unused)]
-fn get_bibles_names() -> String {
-    BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
+
+pub fn find_bible(input: String, default: &String) -> String {
+    BIBLES_REGEX
+        .find(&input)
+        .map(|m| m.as_str().to_uppercase())
+        .unwrap_or_else(|| default.to_string())
 }
-#[allow(unused)]
-fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
-    let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
-    let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
-    bibles.get(&lookup_name).cloned()
+
+pub fn avaialble_bibles() -> String {
+    BIBLES
+        .keys()
+        .map(|key| key.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
