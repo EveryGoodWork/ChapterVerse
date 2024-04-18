@@ -19,3 +19,7 @@ Cargo.lock
 .vscode/launch.json
 
 channels/
+
+bibles/LSB.csv
+
+bibles/LSB.xml
