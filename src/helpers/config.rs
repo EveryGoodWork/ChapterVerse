@@ -1,65 +1,106 @@
-use chrono::Utc;
+use chrono::{DateTime, Local, Utc};
+use serde::Deserializer;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, read_dir};
+use std::fs;
 use std::path::Path;
 extern crate sanitize_filename;
 
 const CONFIGS_PATH: &str = "./channels";
 
+fn deserialize_datetime_or_none<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let helper = Option::<String>::deserialize(deserializer);
+    match helper {
+        Ok(Some(date_str)) => match DateTime::parse_from_rfc3339(&date_str) {
+            Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
+            Err(_) => Ok(None),
+        },
+        Ok(None) => Ok(None),
+        Err(_) => Ok(None),
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
+    #[serde(default)]
     pub account: Option<Account>,
+    #[serde(default)]
     pub channel: Option<Channel>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Account {
+    #[serde(default)]
     pub username: Option<String>,
+    #[serde(default)]
     pub notes: Option<String>,
-    created_date: Option<String>,
-    modified_date: Option<String>,
+    #[serde(default)]
+    created_date: Option<DateTime<Utc>>,
+    #[serde(default)]
+    modified_date: Option<DateTime<Utc>>,
+    #[serde(default)]
     joined_from: Option<String>,
+    #[serde(default)]
     pub bible: Option<Bible>,
+    #[serde(default)]
     pub metrics: Option<Metrics>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
+    #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
     pub active: Option<bool>,
-    pub join_date: Option<String>,
-    pub part_date: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_datetime_or_none")]
+    pub join_date: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "deserialize_datetime_or_none")]
+    pub part_date: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub from_channel: Option<String>,
+    #[serde(default)]
     pub bible: Option<Bible>,
+    #[serde(default)]
     pub metrics: Option<Metrics>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bible {
+    #[serde(default)]
     pub last_translation: Option<String>,
+    #[serde(default)]
     pub preferred_translation: Option<String>,
+    #[serde(default)]
     pub last_verse: Option<String>,
+    #[serde(default)]
     pub pending_text: Option<String>,
+    #[serde(default)]
     pub votd: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Metrics {
+    #[serde(default)]
     pub scriptures: Option<u32>,
+    #[serde(default)]
     pub gospels_english: Option<u32>,
+    #[serde(default)]
     pub gospels_spanish: Option<u32>,
+    #[serde(default)]
     pub gospels_german: Option<u32>,
 }
 
 impl Config {
     fn default(username: &str) -> Self {
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
         Config {
             account: Some(Account {
                 username: Some(username.to_string()),
                 notes: Some(String::new()),
-                created_date: Some(now.clone()),
-                modified_date: Some(now.clone()),
+                created_date: Some(now),
+                modified_date: Some(now),
                 joined_from: Some(String::new()),
                 bible: Some(Bible {
                     last_translation: Some(String::new()),
@@ -78,8 +119,8 @@ impl Config {
             channel: Some(Channel {
                 notes: Some(String::new()),
                 active: Some(false),
-                join_date: Some(String::new()),
-                part_date: Some(String::new()),
+                join_date: None,
+                part_date: None,
                 from_channel: Some(String::new()),
                 bible: Some(Bible {
                     last_translation: Some(String::new()),
@@ -147,9 +188,14 @@ impl Config {
 
     pub fn add_note(&mut self, note: String) {
         if let Some(account) = &mut self.account {
-            let current_time = Utc::now().to_rfc3339();
+            let current_time = Utc::now();
             let current_notes = account.notes.take().unwrap_or_default();
-            account.notes = Some(format!("{} - {}\n{}", current_time, note, current_notes));
+            account.notes = Some(format!(
+                "{} - {}\n{}",
+                current_time.format("%Y-%m-%d %H:%M:%S UTC"),
+                note,
+                current_notes
+            ));
             account.modified_date = Some(current_time);
             self.save();
         }
@@ -158,12 +204,12 @@ impl Config {
     pub fn join_channel(&mut self, from_channel: String) {
         if let Some(channel) = &mut self.channel {
             channel.active = Some(true);
-            channel.join_date = Some(Utc::now().to_rfc3339());
-            channel.part_date = Some("".to_string());
+            channel.join_date = Some(Utc::now());
+            channel.part_date = None;
             channel.from_channel = Some(from_channel);
             self.add_note("!joinchannel".to_owned());
             if let Some(account) = &mut self.account {
-                account.modified_date = Some(Utc::now().to_rfc3339());
+                account.modified_date = Some(Utc::now());
             }
             self.save()
         }
@@ -171,11 +217,11 @@ impl Config {
 
     pub fn leave_channel(&mut self) {
         if let Some(channel) = &mut self.channel {
-            channel.part_date = Some(Utc::now().to_rfc3339());
+            channel.part_date = Some(Utc::now());
             channel.active = Some(false);
             self.add_note("!leavechannel".to_owned());
             if let Some(account) = &mut self.account {
-                account.modified_date = Some(Utc::now().to_rfc3339());
+                account.modified_date = Some(Utc::now());
             }
             self.save();
         }
@@ -185,7 +231,7 @@ impl Config {
         if let Some(account) = &mut self.account {
             if let Some(bible) = &mut account.bible {
                 bible.last_verse = Some(verse.to_string());
-                account.modified_date = Some(Utc::now().to_rfc3339());
+                account.modified_date = Some(Utc::now());
                 self.save();
             }
         }
@@ -208,7 +254,7 @@ impl Config {
             if let Some(bible) = &mut account.bible {
                 bible.last_translation = Some(translation.to_string());
             }
-            account.modified_date = Some(Utc::now().to_rfc3339());
+            account.modified_date = Some(Utc::now());
         }
         self.save();
     }
@@ -218,36 +264,63 @@ impl Config {
             if let Some(bible) = &mut account.bible {
                 bible.preferred_translation = Some(translation.to_string());
             }
-            account.modified_date = Some(Utc::now().to_rfc3339());
+            account.modified_date = Some(Utc::now());
         }
         self.add_note(format!("!translation {}", translation));
         self.save();
     }
 
     pub fn get_channels() -> Vec<String> {
-        read_dir(CONFIGS_PATH)
-            .unwrap_or_else(|_| panic!("Failed to read directory"))
-            .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    let path = e.path();
+        match fs::read_dir(CONFIGS_PATH) {
+            Ok(entries) => entries
+                .filter_map(|entry| {
+                    let entry = match entry {
+                        Ok(e) => e,
+                        Err(err) => {
+                            println!("Failed to process an entry: {}", err);
+                            return None;
+                        }
+                    };
+
+                    let path = entry.path();
                     if path.is_file()
                         && path.extension().and_then(std::ffi::OsStr::to_str) == Some("toml")
                     {
-                        fs::read_to_string(path).ok().and_then(|content| {
-                            toml::from_str::<Config>(&content).ok().and_then(|config| {
-                                if config.channel.as_ref()?.active.unwrap_or(false) {
-                                    config.account?.username
-                                } else {
+                        match fs::read_to_string(&path) {
+                            Ok(content) => match toml::from_str::<Config>(&content) {
+                                Ok(config) => {
+                                    if config.channel.as_ref()?.active.unwrap_or(false) {
+                                        println!("Channel is active: {:?}", path);
+                                        config.account?.username
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Err(err) => {
+                                    println!(
+                                        "Failed to deserialize TOML content from {}: {}",
+                                        path.display(),
+                                        err
+                                    );
                                     None
                                 }
-                            })
-                        })
+                            },
+                            Err(err) => {
+                                println!("Failed to read file {}: {}", path.display(), err);
+                                None
+                            }
+                        }
                     } else {
+                        println!("Skipped non-TOML file or directory: {:?}", path);
                         None
                     }
                 })
-            })
-            .collect()
+                .collect(),
+            Err(err) => {
+                println!("Failed to read directory '{}': {}", CONFIGS_PATH, err);
+                Vec::new() // Return an empty vector if the directory read fails
+            }
+        }
     }
 
     pub fn from_channel(&self) -> String {
@@ -260,8 +333,13 @@ impl Config {
     pub fn join_date(&self) -> String {
         self.channel
             .as_ref()
-            .and_then(|c| c.join_date.clone())
-            .unwrap_or_default()
+            .and_then(|channel| channel.join_date.as_ref())
+            .map(|dt| {
+                dt.with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            })
+            .unwrap_or_else(|| "No join date".to_string())
     }
 
     pub fn add_account_metrics_gospel_english(&mut self) {
@@ -302,6 +380,7 @@ impl Config {
             }
         }
     }
+
     pub fn add_account_metrics_scriptures(&mut self) {
         let success = self
             .account

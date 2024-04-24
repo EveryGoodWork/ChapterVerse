@@ -100,7 +100,7 @@ async fn main() {
                                         ));
                                         match new_twitch_listener.clone().connect().await {
                                             Ok(_) => {
-                                                println!("Successfully connected. - Not Actually - it is in process");
+                                                // println!("Successfully connected. - Not Actually - it is in process");
                                                 let _ = new_twitch_listener
                                                     .clone()
                                                     .join_channel(display_name)
@@ -145,9 +145,6 @@ async fn main() {
 
                                     if BIBLES.contains_key(&translation) {
                                         config.preferred_translation(&translation);
-                                        config.add_note(
-                                            format!("!translation {}", &translation).to_owned(),
-                                        );
                                         Some(
                                             format!(
                                                 "Set perferred translation: {}.",
@@ -308,7 +305,7 @@ async fn main() {
             let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
             // TODO! - this looks like I'm creating this for no reason now that I'm doing the loop.  This needs to be refactored.
             match new_twitch_listener.clone().connect().await {
-                Ok(_) => println!("Websocket connect OK..."),
+                Ok(_) => (), // println!("Websocket connect OK..."),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -324,7 +321,7 @@ async fn main() {
                     chuch_twitch_listener.clone(),
                 );
                 match chuch_twitch_listener.clone().connect().await {
-                    Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
+                    Ok(_) => (), // println!("Successfully connected. - Not Actually - it is in process"),
                     Err(e) => {
                         eprintln!("Failed to connect: {:?}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -334,9 +331,8 @@ async fn main() {
                 tokio::spawn(async move {
                     for channel in chunk {
                         let twitch_listener_clone = Arc::clone(&chuch_twitch_listener); // Clone for each iteration
-                        let username = twitch_listener_clone.username.to_string();
                         match twitch_listener_clone.join_channel(channel).await {
-                            Ok(_) => println!("{} Joined channel {}", username, channel),
+                            Ok(_) => (), //println!("{} Joined channel {}", twitch_listener_clone.username.to_string(), channel),
                             Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
                         }
                     }
@@ -354,7 +350,7 @@ async fn main() {
     tokio::spawn(async move {
         match replier_clone.clone().connect().await {
             Ok(_) => {
-                println!("Successfully connected for Replying.");
+                // println!("Successfully connected for Replying.");
                 let _ = replier_clone
                     .clone()
                     .send_message("chapterverse", "Jesus is Lord!")
