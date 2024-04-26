@@ -237,12 +237,13 @@ impl WebSocket {
 
     pub async fn send_message(&self, message: MessageData) {
         let twitch_message = match message.reply {
-            Some(ref reply) => format!(
-                "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
-                message.id.unwrap(),
-                message.channel,
-                reply
-            ),
+            Some(ref reply) => match message.id {
+                Some(id) => format!(
+                    "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
+                    id, message.channel, reply
+                ),
+                None => format!("PRIVMSG #{} :{}\r\n", message.channel, reply),
+            },
             None => format!("PRIVMSG #{} :{}\r\n", message.channel, message.text),
         };
 

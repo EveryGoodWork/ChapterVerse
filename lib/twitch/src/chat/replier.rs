@@ -42,7 +42,7 @@ impl Replier {
     ) -> Result<(), &'static str> {
         let message_data = MessageData {
             channel: channel_name.to_string(),
-            text: message_text.to_string(),
+            text: message_text.chars().take(500).collect(),
             ..MessageData::default()
         };
         self.websocket.send_message(message_data).await;
