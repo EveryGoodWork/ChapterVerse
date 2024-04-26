@@ -1,7 +1,10 @@
 use bible::scripture::bible::Bible;
+use futures::stream::ForEach;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::get_running_time;
+use helpers::statics::START_DATETIME_LOCAL;
+use helpers::statics::START_DATETIME_UTC;
 use helpers::statics::TWITCH_ACCOUNT;
 use tokio::sync::mpsc;
 
@@ -32,6 +35,11 @@ const DEFAULT_TRANSLATION: &str = "KJV";
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
+    PrintCommand::Issue.print_message(
+        "Start UTC",
+        &START_DATETIME_UTC.format("%Y/%m/%d %H:%M").to_string(),
+    );
+    PrintCommand::Issue.print_message("Start Local", &START_DATETIME_LOCAL);
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
     for (bible_name, bible_arc) in BIBLES.iter() {
         let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
@@ -60,6 +68,7 @@ async fn main() {
 
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
+    let listeners_metrics_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
 
     // **Spawn a task to Listens for incoming Twitch messages.
@@ -194,7 +203,20 @@ async fn main() {
                                 "!support" => Some("Display support options.".to_string()),
                                 "!status" => Some({
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
-                                    get_running_time()
+                                    let listeners_lock = listeners_clone.lock();
+                                    let mut metric_total_channels: u32 = 0;
+                                    for (_key, listener) in listeners_lock.await.iter() {
+                                        let channels_count = listener
+                                            .channels_count
+                                            .load(std::sync::atomic::Ordering::Relaxed);
+                                        metric_total_channels += channels_count as u32;
+                                    }
+                                    format!(
+                                        "v{}, | Totals: {}| Metrics: {} uptime",
+                                        env!("CARGO_PKG_VERSION"),
+                                        metric_total_channels,
+                                        get_running_time()
+                                    )
                                 }),
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
@@ -334,14 +356,14 @@ async fn main() {
                 }
             }
             for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
-                let chuch_twitch_listener =
+                let chunk_twitch_listener =
                     Arc::new(Listener::new(listener_transmitter_clone.clone()));
                 let listeners_lock = listeners_clone.lock();
                 listeners_lock.await.insert(
-                    chuch_twitch_listener.username.to_string(),
-                    chuch_twitch_listener.clone(),
+                    chunk_twitch_listener.username.to_string(),
+                    chunk_twitch_listener.clone(),
                 );
-                match chuch_twitch_listener.clone().connect().await {
+                match chunk_twitch_listener.clone().connect().await {
                     Ok(_) => (), // println!("Successfully connected. - Not Actually - it is in process"),
                     Err(e) => {
                         eprintln!("Failed to connect: {:?}", e);
@@ -351,7 +373,7 @@ async fn main() {
                 }
                 tokio::spawn(async move {
                     for channel in chunk {
-                        let twitch_listener_clone = Arc::clone(&chuch_twitch_listener); // Clone for each iteration
+                        let twitch_listener_clone = Arc::clone(&chunk_twitch_listener); // Clone for each iteration
                         match twitch_listener_clone.join_channel(channel).await {
                             Ok(_) => (), //println!("{} Joined channel {}", twitch_listener_clone.username.to_string(), channel),
                             Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
@@ -382,9 +404,9 @@ async fn main() {
                     .send_message(
                         &TWITCH_ACCOUNT,
                         format!(
-                            "ChapterVerse Version: {} - ONLINE: {}",
+                            "ChapterVerse Version: {} | ONLINE: {}",
                             env!("CARGO_PKG_VERSION"),
-                            *helpers::statics::START_DATETIME_LOCAL
+                            *START_DATETIME_LOCAL,
                         )
                         .as_str(),
                     )

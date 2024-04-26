@@ -1,6 +1,5 @@
 use chrono::{DateTime, Local, Utc};
-use serde::Deserializer;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::path::Path;
 extern crate sanitize_filename;

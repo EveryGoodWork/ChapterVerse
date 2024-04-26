@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{env, fs};
 
+// Important Note: lazy_static's are not loaded until the first time they are called.
 lazy_static! {
 
 pub static ref TWITCH_ACCOUNT: String = get_env_variable("TWITCHACCOUNT", "twitchusername");
@@ -108,8 +109,7 @@ pub fn avaialble_bibles() -> String {
 }
 
 pub fn get_running_time() -> String {
-    let dt = Utc::now();
-    let duration = dt.signed_duration_since(*START_DATETIME_UTC);
+    let duration = Utc::now().signed_duration_since(*START_DATETIME_UTC);
     let days = duration.num_days();
     let hours = duration.num_hours() % 24;
     let minutes = duration.num_minutes() % 60;
