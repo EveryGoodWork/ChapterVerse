@@ -1,6 +1,8 @@
 use bible::scripture::bible::Bible;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
+use helpers::statics::get_running_time;
+use helpers::statics::TWITCH_ACCOUNT;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
@@ -53,9 +55,8 @@ async fn main() {
 
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
 
-    let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
-    let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
+    let replier = Arc::new(Replier::new(&TWITCH_ACCOUNT, &twitch_oauth));
 
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
@@ -191,7 +192,10 @@ async fn main() {
                                 }
                                 "!myinfo" => Some("Display user's information.".to_string()),
                                 "!support" => Some("Display support options.".to_string()),
-                                "!status" => Some("Display current status.".to_string()),
+                                "!status" => Some({
+                                    // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
+                                    get_running_time()
+                                }),
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
                                 "!gospel" => {
@@ -281,8 +285,25 @@ async fn main() {
                                     .ok()
                                     .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
                             ));
+
                             if let Err(e) =
-                                replier_transmitter_clone.message_tx.send(message.clone())
+                                { replier_transmitter_clone.message_tx.send(message.clone()) }
+                            {
+                                eprintln!("Failed to send message: {}", e);
+                            }
+
+                            let mut echo_message = message.clone();
+                            echo_message.channel = TWITCH_ACCOUNT.to_string();
+                            echo_message.reply = Some(format!(
+                                "http://twitch.tv/{} {} \"{}\" : {}",
+                                message.channel,
+                                message.display_name.clone().unwrap_or_default(),
+                                message.text,
+                                message.reply.clone().unwrap_or_default()
+                            ));
+                            echo_message.id = None;
+                            if let Err(e) =
+                                { replier_transmitter_clone.message_tx.send(echo_message) }
                             {
                                 eprintln!("Failed to send message: {}", e);
                             }
@@ -347,21 +368,23 @@ async fn main() {
     // Spawn a task for replying to messages.
     let replier_clone = Arc::clone(&replier);
     let loop_replier_clone = Arc::clone(&replier);
+
     tokio::spawn(async move {
         match replier_clone.clone().connect().await {
             Ok(_) => {
                 // println!("Successfully connected for Replying.");
                 let _ = replier_clone
                     .clone()
-                    .send_message("chapterverse", "Jesus is Lord!")
+                    .send_message(&TWITCH_ACCOUNT, "Jesus is Lord!")
                     .await;
                 let _ = replier_clone
                     .clone()
                     .send_message(
-                        "chapterverse",
+                        &TWITCH_ACCOUNT,
                         format!(
-                            "ChapterVerse Version: {} - ONLINE",
-                            env!("CARGO_PKG_VERSION")
+                            "ChapterVerse Version: {} - ONLINE: {}",
+                            env!("CARGO_PKG_VERSION"),
+                            *helpers::statics::START_DATETIME_LOCAL
                         )
                         .as_str(),
                     )
@@ -374,7 +397,7 @@ async fn main() {
                 //         let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
                 //         let _ = replier_clone
                 //             .clone()
-                //             .send_message("chapterverse", &message)
+                //             .send_message("TESTACCOUNT", &message)
                 //             .await;
                 //     }
                 // }
