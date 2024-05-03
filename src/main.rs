@@ -202,6 +202,7 @@ async fn main() {
                                 "!myinfo" => Some("Display user's information.".to_string()),
                                 "!support" => Some("Display support options.".to_string()),
                                 "!status" => Some({
+                                    message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
                                     let listeners_lock = listeners_clone.lock();
                                     let mut metric_total_channels: u32 = 0;
@@ -212,7 +213,7 @@ async fn main() {
                                         metric_total_channels += channels_count as u32;
                                     }
                                     format!(
-                                        "v{}, | Totals: {}| Metrics: {} uptime",
+                                        "v{}, | Channels: {}| Metrics: {} uptime",
                                         env!("CARGO_PKG_VERSION"),
                                         metric_total_channels,
                                         get_running_time()
