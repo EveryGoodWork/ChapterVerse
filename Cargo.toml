@@ -1,6 +1,6 @@
 [package]
 name = "chapterverse"
-version = "2024.5.3"
+version = "2024.5.4-18"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,12 +30,16 @@ thiserror = "1.0.58"
 futures = "0.3"
 toml = "0.8.12"
 serde = {version = "1.0.197", features =["derive"]}
-chrono = {version = "0.4.37", features = ["serde"]}
+chrono = { version = "0.4.37", features = ["serde"] }
 sanitize-filename = "0.5.0"
 serde_derive = "1.0.198"
 
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
+
+[build-dependencies]
+toml_edit = "0.22.12"
+chrono = "0.4.37"
 
 [[bench]]
 name = "bible_benchmark"
