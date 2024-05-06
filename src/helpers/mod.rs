@@ -4,3 +4,5 @@ pub mod metrics;
 pub mod print_color;
 pub mod response_builder;
 pub mod statics;
+
+pub use self::metrics::Metrics;

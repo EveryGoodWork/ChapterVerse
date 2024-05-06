@@ -1,10 +1,9 @@
 use bible::scripture::bible::Bible;
-use futures::stream::ForEach;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::get_running_time;
+use helpers::statics::METRICS;
 use helpers::statics::START_DATETIME_LOCAL;
-use helpers::statics::START_DATETIME_UTC;
 use helpers::statics::TWITCH_ACCOUNT;
 use tokio::sync::mpsc;
 
@@ -35,10 +34,10 @@ const DEFAULT_TRANSLATION: &str = "KJV";
 async fn main() {
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
-    PrintCommand::Issue.print_message(
-        "Start UTC",
-        &START_DATETIME_UTC.format("%Y/%m/%d %H:%M").to_string(),
-    );
+    // PrintCommand::Issue.print_message(
+    //     "Start UTC",
+    //     &START_DATETIME_UTC.format("%Y/%m/%d %H:%M").to_string(),
+    // );
     PrintCommand::Issue.print_message("Start Local", &START_DATETIME_LOCAL);
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
     for (bible_name, bible_arc) in BIBLES.iter() {
@@ -57,18 +56,14 @@ async fn main() {
 
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
-
-    let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
-    let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
-
-    let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-
     let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
     let replier = Arc::new(Replier::new(&TWITCH_ACCOUNT, &twitch_oauth));
 
+    let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
+    let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
+    let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
-    let listeners_metrics_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
 
     // **Spawn a task to Listens for incoming Twitch messages.
@@ -204,6 +199,7 @@ async fn main() {
                                 "!status" => Some({
                                     message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
+                                    // TODO:  Remove this manual counting and replace it with a Matric
                                     let listeners_lock = listeners_clone.lock();
                                     let mut metric_total_channels: u32 = 0;
                                     for (_key, listener) in listeners_lock.await.iter() {
@@ -212,10 +208,16 @@ async fn main() {
                                             .load(std::sync::atomic::Ordering::Relaxed);
                                         metric_total_channels += channels_count as u32;
                                     }
+
+                                    let metrics = METRICS.read().await;
+                                    let metric_channels = metrics.channels.unwrap_or(0).to_string(); // Safely handling Option and converting to string
+                                    let metric_users = metrics.users.unwrap_or(0).to_string();
                                     format!(
-                                        "v{}, | Channels: {}| Metrics: {} uptime",
+                                        "v{}, | Metrics: {}/{} channels, {} users | {} uptime",
                                         env!("CARGO_PKG_VERSION"),
                                         metric_total_channels,
+                                        metric_channels,
+                                        metric_users,
                                         get_running_time()
                                     )
                                 }),
@@ -224,18 +226,24 @@ async fn main() {
                                 "!gospel" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_english();
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.increment_gospels_english();
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
                                 }
                                 "!evangelio" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_spanish();
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.increment_gospels_spanish();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIO.to_string())
                                 }
                                 "!evangelium" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_german();
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.increment_gospels_german();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIUM.to_string())
                                 }
@@ -345,11 +353,15 @@ async fn main() {
     let listener_transmitter_clone = listener_transmitter.clone();
     // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
+        {
+            let mut metrics = METRICS.write().await;
+            metrics.reset_channels();
+        }
+
         loop {
             let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
-            // TODO! - this looks like I'm creating this for no reason now that I'm doing the loop.  This needs to be refactored.
             match new_twitch_listener.clone().connect().await {
-                Ok(_) => (), // println!("Websocket connect OK..."),
+                Ok(_) => (),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -365,19 +377,24 @@ async fn main() {
                     chunk_twitch_listener.clone(),
                 );
                 match chunk_twitch_listener.clone().connect().await {
-                    Ok(_) => (), // println!("Successfully connected. - Not Actually - it is in process"),
+                    Ok(_) => (),
                     Err(e) => {
                         eprintln!("Failed to connect: {:?}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                         continue;
                     }
                 }
-                tokio::spawn(async move {
-                    for channel in chunk {
-                        let twitch_listener_clone = Arc::clone(&chunk_twitch_listener); // Clone for each iteration
-                        match twitch_listener_clone.join_channel(channel).await {
-                            Ok(_) => (), //println!("{} Joined channel {}", twitch_listener_clone.username.to_string(), channel),
-                            Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                tokio::spawn({
+                    async move {
+                        for channel in chunk {
+                            let twitch_listener_clone = Arc::clone(&chunk_twitch_listener);
+                            match twitch_listener_clone.join_channel(channel).await {
+                                Ok(_) => {
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.increment_channels();
+                                }
+                                Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                            }
                         }
                     }
                 });
