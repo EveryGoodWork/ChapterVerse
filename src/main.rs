@@ -175,7 +175,9 @@ async fn main() {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
                                     config.leave_channel();
-
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.add_user(&display_name);
+                                    metrics.remove_channel(&display_name);
                                     let listeners_lock = listeners_clone.lock();
                                     for (_key, listener) in listeners_lock.await.iter() {
                                         match listener.leave_channel(&display_name).await {
@@ -209,11 +211,12 @@ async fn main() {
                                         metric_total_channels += channels_count as u32;
                                     }
 
-                                    let metrics = METRICS.read().await;
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.add_user(message.display_name.unwrap_or_default());
                                     let metric_channels = metrics.channels.unwrap_or(0).to_string(); // Safely handling Option and converting to string
                                     let metric_users = metrics.users.unwrap_or(0).to_string();
                                     format!(
-                                        "v{}, | Metrics: {}/{} channels, {} users | {} uptime",
+                                        "v{}, | Metrics: {}/{} check/channels, {} users | {} uptime",
                                         env!("CARGO_PKG_VERSION"),
                                         metric_total_channels,
                                         metric_channels,
@@ -227,6 +230,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_english();
                                     let mut metrics = METRICS.write().await;
+                                    metrics.add_user(message.display_name.unwrap_or_default());
                                     metrics.increment_gospels_english();
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
@@ -235,6 +239,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_spanish();
                                     let mut metrics = METRICS.write().await;
+                                    metrics.add_user(message.display_name.unwrap_or_default());
                                     metrics.increment_gospels_spanish();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIO.to_string())
@@ -243,6 +248,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_german();
                                     let mut metrics = METRICS.write().await;
+                                    metrics.add_user(message.display_name.unwrap_or_default());
                                     metrics.increment_gospels_german();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIUM.to_string())
@@ -281,8 +287,10 @@ async fn main() {
                                             &bible_name_to_use,
                                         );
                                         config.set_last_verse(&verses.last().unwrap().reference);
-                                        // TODO!  Add response_output.remainder to config.
                                         config.add_account_metrics_scriptures();
+                                        let mut metrics = METRICS.write().await;
+                                        metrics.add_user(message.display_name.unwrap_or_default());
+                                        metrics.increment_scriptures();
                                         message.tags.push(Type::Scripture);
                                         Some(response_output.truncated)
                                     }
@@ -306,7 +314,6 @@ async fn main() {
                     }
                     match reply {
                         Some(ref reply_value) => {
-                            // TODO!  This is where I'll put the configuration update.
                             println!("Tages: {:?}", message.tags);
                             message.reply = Some(format!(
                                 "{} ({}ms)",
@@ -353,11 +360,6 @@ async fn main() {
     let listener_transmitter_clone = listener_transmitter.clone();
     // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
-        {
-            let mut metrics = METRICS.write().await;
-            metrics.reset_channels();
-        }
-
         loop {
             let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
             match new_twitch_listener.clone().connect().await {
@@ -391,7 +393,7 @@ async fn main() {
                             match twitch_listener_clone.join_channel(channel).await {
                                 Ok(_) => {
                                     let mut metrics = METRICS.write().await;
-                                    metrics.increment_channels();
+                                    metrics.add_channel(channel);
                                 }
                                 Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
                             }

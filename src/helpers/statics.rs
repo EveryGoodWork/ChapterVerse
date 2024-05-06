@@ -1,6 +1,6 @@
 use crate::helpers::config::Config;
 use crate::helpers::env_variables::get_env_variable;
-use crate::helpers::metrics;
+use crate::helpers::Metrics;
 use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use chrono::{DateTime, Local, Utc};
@@ -9,7 +9,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{env, fs};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 // Important Note: lazy_static's are not loaded until the first time they are called.
 lazy_static! {
@@ -39,7 +39,7 @@ pub static ref BIBLES_REGEX: Regex = {
 pub static ref CHANNELS_TO_JOIN: Vec<String> = Config::get_channels();
 
 //pub static ref METRICS: Arc<Mutex<metrics::Metrics>> = Arc::new(Mutex::new(metrics::Metrics::default()));
-pub static ref METRICS: Arc<RwLock<metrics::Metrics>> = Arc::new(RwLock::new(metrics::Metrics::default()));
+pub static ref METRICS: Arc<RwLock<Metrics>> = Arc::new(RwLock::new(Metrics::default()));
 
 
 pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
