@@ -5,35 +5,35 @@ use std::path::{Path, PathBuf};
 use toml_edit::{value, DocumentMut};
 
 fn main() {
-    if env::var("PROFILE").unwrap_or_default() == "debug" {
-        println!("cargo:rerun-if-changed=build.rs");
-    }
-    let filename = "Cargo.toml";
-    let contents = fs::read_to_string(filename).unwrap();
-    let mut doc = contents.parse::<DocumentMut>().unwrap();
+    // if env::var("PROFILE").unwrap_or_default() == "debug" {
+    //     println!("cargo:rerun-if-changed=build.rs");
+    // }
+    // let filename = "Cargo.toml";
+    // let contents = fs::read_to_string(filename).unwrap();
+    // let mut doc = contents.parse::<DocumentMut>().unwrap();
 
-    let date_version_key = Local::now().format("%Y.%-m.%-d").to_string();
-    let default_version = format!("{}-1", date_version_key);
-    let current_version = doc["package"]["version"]
-        .as_str()
-        .map(String::from)
-        .unwrap_or(default_version);
-    let mut parts: Vec<_> = current_version.split('-').map(String::from).collect();
+    // let date_version_key = Local::now().format("%Y.%-m.%-d").to_string();
+    // let default_version = format!("{}-1", date_version_key);
+    // let current_version = doc["package"]["version"]
+    //     .as_str()
+    //     .map(String::from)
+    //     .unwrap_or(default_version);
+    // let mut parts: Vec<_> = current_version.split('-').map(String::from).collect();
 
-    if parts[0] == date_version_key {
-        if let Ok(build_number) = parts[1].parse::<i32>() {
-            parts[1] = (build_number + 1).to_string();
-        }
-    } else {
-        parts = vec![date_version_key, "1".to_string()];
-    }
+    // if parts[0] == date_version_key {
+    //     if let Ok(build_number) = parts[1].parse::<i32>() {
+    //         parts[1] = (build_number + 1).to_string();
+    //     }
+    // } else {
+    //     parts = vec![date_version_key, "1".to_string()];
+    // }
 
-    let new_version = parts.join("-");
-    doc["package"]["version"] = value(new_version.clone());
-    println!("cargo:warning=Version updated to {}", new_version);
+    // let new_version = parts.join("-");
+    // doc["package"]["version"] = value(new_version.clone());
+    // println!("cargo:warning=Version updated to {}", new_version);
 
     // Write the updated document back to Cargo.toml
-    fs::write(filename, doc.to_string()).unwrap();
+    // fs::write(filename, doc.to_string()).unwrap();
 
     //**Copy Bibles
     let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
