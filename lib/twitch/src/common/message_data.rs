@@ -86,11 +86,11 @@ impl MessageData {
         types
     }
 
-    pub fn complete(&self) -> Result<u128, &'static str> {
+    pub fn complete(&self) -> Result<u64, &'static str> {
         SystemTime::now()
             .duration_since(self.received)
             .map_err(|_| "Time went backwards")
-            .map(|dur| dur.as_millis()) // Convert Duration to milliseconds
+            .map(|dur| dur.as_millis() as u64)
     }
 
     pub fn new(raw: &str) -> Option<Self> {

@@ -97,6 +97,9 @@ async fn main() {
                                 "!joinchannel" => {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.add_user(&display_name);
+                                    metrics.add_channel(&display_name);
 
                                     if !config.channel.as_ref().unwrap().active.unwrap_or(false) {
                                         config.join_channel(message.channel.to_string());
@@ -201,27 +204,34 @@ async fn main() {
                                 "!status" => Some({
                                     message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
-                                    // TODO:  Remove this manual counting and replace it with a Matric
-                                    let listeners_lock = listeners_clone.lock();
-                                    let mut metric_total_channels: u32 = 0;
-                                    for (_key, listener) in listeners_lock.await.iter() {
-                                        let channels_count = listener
-                                            .channels_count
-                                            .load(std::sync::atomic::Ordering::Relaxed);
-                                        metric_total_channels += channels_count as u32;
-                                    }
-
                                     let mut metrics = METRICS.write().await;
                                     metrics.add_user(message.display_name.unwrap_or_default());
-                                    let metric_channels = metrics.channels.unwrap_or(0).to_string(); // Safely handling Option and converting to string
+                                    let metric_channels = metrics.channels.unwrap_or(0).to_string();
                                     let metric_users = metrics.users.unwrap_or(0).to_string();
+                                    let metric_scriptures =
+                                        metrics.scriptures.unwrap_or(0).to_string();
+                                    let metric_gospels = (metrics.gospels_english.unwrap_or(0)
+                                        + metrics.gospels_spanish.unwrap_or(0)
+                                        + metrics.gospels_german.unwrap_or(0))
+                                    .to_string();
+                                    let running_time = get_running_time();
+                                    let (total_messages_parsed, average_parse_time) =
+                                        metrics.message_parsed_stats();
+                                    let (total_responses, average_response_time) =
+                                        metrics.message_response_stats();
+
                                     format!(
-                                        "v{}, | Metrics: {}/{} check/channels, {} users | {} uptime",
+                                        "v{}, | Totals: {} channels, {} users, {} scriptures, {} Gospel Proclamations! | Current Metrics: {} uptime, {} messages parsed ({}ms avg), {} responses ({}ms avg)",
                                         env!("CARGO_PKG_VERSION"),
-                                        metric_total_channels,
                                         metric_channels,
                                         metric_users,
-                                        get_running_time()
+                                        metric_scriptures,
+                                        metric_gospels,
+                                        running_time,
+                                        total_messages_parsed,
+                                        average_parse_time,
+                                        total_responses,
+                                        average_response_time,
                                     )
                                 }),
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
@@ -314,16 +324,12 @@ async fn main() {
                     }
                     match reply {
                         Some(ref reply_value) => {
-                            println!("Tages: {:?}", message.tags);
-                            message.reply = Some(format!(
-                                "{} ({}ms)",
-                                reply_value,
-                                message
-                                    .complete()
-                                    .ok()
-                                    .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
-                            ));
+                            let mut metrics = METRICS.write().await;
+                            let duration = message.complete().unwrap_or_default();
+                            metrics.message_response(duration);
 
+                            println!("Tages: {:?}", message.tags);
+                            message.reply = Some(format!("{} ({}ms)", reply_value, duration));
                             if let Err(e) =
                                 { replier_transmitter_clone.message_tx.send(message.clone()) }
                             {
@@ -348,7 +354,9 @@ async fn main() {
                         }
                         None => {
                             println!("Tages: {:?}", message.tags);
-                            let _ = message.complete();
+                            let mut metrics = METRICS.write().await;
+                            let duration = message.complete().unwrap_or_default();
+                            metrics.message_parsed(duration);
                         }
                     }
                 }
