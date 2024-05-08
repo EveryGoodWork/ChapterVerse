@@ -27,3 +27,7 @@ bibles/LSB.xml
 bibles/NKJV.csv
 
 metrics/
+
+verse_of_the_day.html
+
+votd_config.toml
