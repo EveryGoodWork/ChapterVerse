@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::path::Path;
+use std::sync::Arc;
 use std::{fs, io::Result};
+use tokio::sync::RwLock;
 
 const METRICS_PATH: &str = "./metrics";
 
@@ -123,62 +125,93 @@ impl Metrics {
         let _ = fs::write(file_path, toml_string);
     }
 
-    pub fn add_channel(&mut self, name: &str) {
-        let _ = self
+    pub async fn add_channel(metrics_arc: &Arc<RwLock<Metrics>>, name: &str) {
+        let mut metrics = metrics_arc.write().await;
+
+        let date_key = Local::now().format("%Y%m%d").to_string();
+        let _ = metrics
+            .daily_channels
+            .entry(date_key.clone())
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
+
+        let _channel_entry = metrics
             .channels_list
             .entry(name.to_string())
-            .or_insert_with(|| {
-                let date_key = Local::now().format("%Y%m%d").to_string();
-                let count = self.daily_channels.entry(date_key).or_insert(0);
-                *count += 1;
-                Channel {
-                    name: name.to_string(),
-                    timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                }
+            .or_insert_with(|| Channel {
+                name: name.to_string(),
+                timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             });
-        self.channels = Some(self.channels_list.len() as u32);
-        self.save();
+
+        metrics.channels = Some(metrics.channels_list.len() as u32);
+        metrics.save();
     }
 
-    pub fn remove_channel(&mut self, name: &str) {
-        if self.channels_list.remove(name).is_some() {
-            self.channels = Some(self.channels_list.len() as u32);
-            self.save();
+    pub async fn remove_channel(metrics_arc: &Arc<RwLock<Metrics>>, name: &str) {
+        let mut metrics = metrics_arc.write().await;
+
+        if metrics.channels_list.remove(name).is_some() {
+            let date_key = Local::now().format("%Y%m%d").to_string();
+            if let Some(count) = metrics.daily_channels.get_mut(&date_key) {
+                if *count > 0 {
+                    *count -= 1;
+                }
+            }
+            metrics.channels = Some(metrics.channels_list.len() as u32);
+            metrics.save();
         }
     }
 
-    pub fn add_user(&mut self, name: &str) {
-        let _ = self.users_list.entry(name.to_string()).or_insert_with(|| {
-            let date_key = Local::now().format("%Y%m%d").to_string();
-            let count = self.daily_users.entry(date_key).or_insert(0);
-            *count += 1;
-            User {
+    pub async fn add_user(metrics_arc: &Arc<RwLock<Self>>, name: &str) {
+        let mut metrics = metrics_arc.write().await;
+
+        let date_key = Local::now().format("%Y%m%d").to_string();
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            metrics.daily_users.entry(date_key.clone())
+        {
+            e.insert(0);
+        }
+        *metrics.daily_users.get_mut(&date_key).unwrap() += 1;
+
+        let _user_entry = metrics
+            .users_list
+            .entry(name.to_string())
+            .or_insert_with(|| User {
                 name: name.to_string(),
                 timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            }
-        });
-        self.users = Some(self.users_list.len() as u32);
-        self.save();
+            });
+
+        metrics.users = Some(metrics.users_list.len() as u32);
+        metrics.save();
     }
 
-    pub fn increment_scriptures(&mut self) {
-        self.scriptures = Some(self.scriptures.unwrap_or_default() + 1);
-        self.save();
+    pub async fn add_user_and_channel(metrics_arc: &Arc<RwLock<Metrics>>, display_name: &str) {
+        Metrics::add_user(metrics_arc, display_name).await;
+        Metrics::add_channel(metrics_arc, display_name).await;
     }
 
-    pub fn increment_gospels_english(&mut self) {
-        self.gospels_english = Some(self.gospels_english.unwrap_or_default() + 1);
-        self.save();
+    pub async fn increment_total_scriptures(metrics_arc: &Arc<RwLock<Metrics>>) {
+        let mut metrics = metrics_arc.write().await;
+        metrics.scriptures = Some(metrics.scriptures.unwrap_or_default() + 1);
+        metrics.save();
     }
 
-    pub fn increment_gospels_spanish(&mut self) {
-        self.gospels_spanish = Some(self.gospels_spanish.unwrap_or_default() + 1);
-        self.save();
+    pub async fn increment_gospels_english(metrics_arc: &Arc<RwLock<Metrics>>) {
+        let mut metrics = metrics_arc.write().await;
+        metrics.gospels_english = Some(metrics.gospels_english.unwrap_or_default() + 1);
+        metrics.save();
     }
 
-    pub fn increment_gospels_german(&mut self) {
-        self.gospels_german = Some(self.gospels_german.unwrap_or_default() + 1);
-        self.save();
+    pub async fn increment_gospels_spanish(metrics_arc: &Arc<RwLock<Metrics>>) {
+        let mut metrics = metrics_arc.write().await;
+        metrics.gospels_spanish = Some(metrics.gospels_spanish.unwrap_or_default() + 1);
+        metrics.save();
+    }
+
+    pub async fn increment_gospels_german(metrics_arc: &Arc<RwLock<Metrics>>) {
+        let mut metrics = metrics_arc.write().await;
+        metrics.gospels_german = Some(metrics.gospels_german.unwrap_or_default() + 1);
+        metrics.save();
     }
 
     pub fn message_parsed(&mut self, duration: u64) {
@@ -196,6 +229,7 @@ impl Metrics {
         entry.daily_messages_parsed_time += duration;
         self.save();
     }
+
     pub fn message_response(&mut self, duration: u64) {
         let date_key = Local::now().format("%Y%m%d").to_string();
         let entry = self

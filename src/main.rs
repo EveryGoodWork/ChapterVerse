@@ -1,10 +1,13 @@
 use bible::scripture::bible::Bible;
+use commands::help;
+use commands::votd;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::get_running_time;
 use helpers::statics::METRICS;
 use helpers::statics::START_DATETIME_LOCAL;
 use helpers::statics::TWITCH_ACCOUNT;
+use helpers::Metrics;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
@@ -22,6 +25,7 @@ use helpers::env_variables::get_env_variable;
 use helpers::statics::{avaialble_bibles, find_bible};
 use helpers::statics::{BIBLES, CHANNELS_TO_JOIN, EVANGELIO, EVANGELIUM, GOSPEL};
 
+mod commands;
 mod helpers;
 
 const CHANNELS_PER_LISTENER: usize = 5;
@@ -92,14 +96,13 @@ async fn main() {
                             reply = match command.as_str() {
                                 "!help" => {
                                     message.tags.push(Type::Command);
-                                    Some(format!("HELP: Available translations: {}. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.", avaialble_bibles()).to_string())
+                                    help(avaialble_bibles)
                                 }
                                 "!joinchannel" => {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
-                                    metrics.add_channel(&display_name);
+
+                                    Metrics::add_user_and_channel(&METRICS, &display_name).await;
 
                                     if !config.channel.as_ref().unwrap().active.unwrap_or(false) {
                                         config.join_channel(message.channel.to_string());
@@ -170,12 +173,15 @@ async fn main() {
                                         )
                                     }
                                 }
-                                "!votd" => Some("Display the verse of the day.".to_string()),
+                                "!votd" => {
+                                    message.tags.push(Type::Command);
+                                    votd().await
+                                }
                                 "!random" => Some("Display a random verse.".to_string()),
                                 "!next" => {
                                     message.tags.push(Type::Command);
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
                                     let mut config = Config::load(&display_name);
                                     let verses = params
                                         .get(0)
@@ -207,7 +213,7 @@ async fn main() {
                                                     &verses.last().unwrap().reference,
                                                 );
                                                 config.add_account_metrics_scriptures();
-                                                metrics.increment_scriptures();
+                                                Metrics::increment_total_scriptures(&METRICS).await;
                                                 message.tags.push(Type::Scripture);
 
                                                 Some(response_output.truncated)
@@ -226,9 +232,8 @@ async fn main() {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
                                     config.leave_channel();
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
-                                    metrics.remove_channel(&display_name);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::remove_channel(&METRICS, &display_name).await;
                                     let listeners_lock = listeners_clone.lock();
                                     for (_key, listener) in listeners_lock.await.iter() {
                                         match listener.leave_channel(&display_name).await {
@@ -252,8 +257,8 @@ async fn main() {
                                 "!status" => Some({
                                     message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
+                                    Metrics::add_user(&METRICS, &display_name).await;
                                     let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
                                     let metric_channels = metrics.channels.unwrap_or(0).to_string();
                                     let metric_users = metrics.users.unwrap_or(0).to_string();
                                     let metric_scriptures =
@@ -287,27 +292,24 @@ async fn main() {
                                 "!gospel" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_english();
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
-                                    metrics.increment_gospels_english();
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_english(&METRICS).await;
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
                                 }
                                 "!evangelio" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_spanish();
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
-                                    metrics.increment_gospels_spanish();
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_spanish(&METRICS).await;
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIO.to_string())
                                 }
                                 "!evangelium" => {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_german();
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_user(&display_name);
-                                    metrics.increment_gospels_german();
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_german(&METRICS).await;
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIUM.to_string())
                                 }
@@ -336,7 +338,7 @@ async fn main() {
                                         message.tags.push(Type::NotScripture);
                                         None
                                     } else {
-                                        //@MissionaryGamer + 1 extra space because the name is included in the text that can't exceed 500.
+                                        //@TwitchAccountName + 1 extra space because the name is included in the text that can't exceed 500.
                                         let adjusted_character_limit = REPLY_CHARACTER_LIMIT
                                             - (message.display_name.unwrap().len() + 1);
                                         let response_output = ResponseBuilder::build(
@@ -346,9 +348,8 @@ async fn main() {
                                         );
                                         config.set_last_verse(&verses.last().unwrap().reference);
                                         config.add_account_metrics_scriptures();
-                                        let mut metrics = METRICS.write().await;
-                                        metrics.add_user(&display_name);
-                                        metrics.increment_scriptures();
+                                        Metrics::add_user(&METRICS, &display_name).await;
+                                        Metrics::increment_total_scriptures(&METRICS).await;
                                         message.tags.push(Type::Scripture);
                                         Some(response_output.truncated)
                                     }
@@ -401,7 +402,7 @@ async fn main() {
                             }
                         }
                         None => {
-                            println!("Tages: {:?}", message.tags);
+                            // println!("Tages: {:?}", message.tags);
                             let mut metrics = METRICS.write().await;
                             let duration = message.complete().unwrap_or_default();
                             metrics.message_parsed(duration);
@@ -448,8 +449,7 @@ async fn main() {
                             let twitch_listener_clone = Arc::clone(&chunk_twitch_listener);
                             match twitch_listener_clone.join_channel(channel).await {
                                 Ok(_) => {
-                                    let mut metrics = METRICS.write().await;
-                                    metrics.add_channel(channel);
+                                    Metrics::add_channel(&METRICS, channel).await;
                                 }
                                 Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
                             }
