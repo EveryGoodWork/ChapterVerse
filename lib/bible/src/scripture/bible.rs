@@ -179,7 +179,7 @@ impl Bible {
             "Pphilemon" | "philem" | "phm" | "pm" => "Philemon",
             "hebrews" | "heb" => "Hebrews",
             "james" | "jas" | "jm" => "James",
-            "2 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
+            "1 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
             | "1peter" | "1pet" | "1pe" | "1pt" | "1p" | "1st peter" | "first peter" => "1 Peter",
             "2 pet" | "2 pe" | "2 pt" | "2 p" | "ii pet" | "ii pe" | "ii pt" | "2peter"
             | "2pet" | "2pe" | "2pt" | "2p" | "2nd peter" | "second peter" => "2 Peter",
