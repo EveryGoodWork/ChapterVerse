@@ -172,7 +172,55 @@ async fn main() {
                                 }
                                 "!votd" => Some("Display the verse of the day.".to_string()),
                                 "!random" => Some("Display a random verse.".to_string()),
-                                "!next" => Some("Go to the next item.".to_string()),
+                                "!next" => {
+                                    message.tags.push(Type::Command);
+                                    let mut metrics = METRICS.write().await;
+                                    metrics.add_user(&display_name);
+                                    let mut config = Config::load(&display_name);
+                                    let verses = params
+                                        .get(0)
+                                        .and_then(|s| s.parse::<usize>().ok())
+                                        .map(|number| number.clamp(1, 10))
+                                        .unwrap_or(1);
+
+                                    if let Some((last_verse, last_translation)) =
+                                        config.get_last_verse_and_translation()
+                                    {
+                                        if let Some(bible_arc) = BIBLES.get(&last_translation) {
+                                            let bible: &Bible = &*bible_arc;
+                                            let verses =
+                                                bible.get_next_scripture(&last_verse, verses);
+
+                                            if verses.is_empty() {
+                                                message.tags.push(Type::NotScripture);
+                                                None
+                                            } else {
+                                                let adjusted_character_limit = REPLY_CHARACTER_LIMIT
+                                                    - (message.display_name.unwrap().len() + 1);
+
+                                                let response_output = ResponseBuilder::build(
+                                                    &verses,
+                                                    adjusted_character_limit,
+                                                    &last_translation,
+                                                );
+                                                config.set_last_verse(
+                                                    &verses.last().unwrap().reference,
+                                                );
+                                                config.add_account_metrics_scriptures();
+                                                metrics.increment_scriptures();
+                                                message.tags.push(Type::Scripture);
+
+                                                Some(response_output.truncated)
+                                            }
+                                        } else {
+                                            eprintln!("No Bible version found for translation");
+                                            None
+                                        }
+                                    } else {
+                                        eprintln!("No verse or translation available");
+                                        None
+                                    }
+                                }
                                 "!previous" => Some("Go to the previous item.".to_string()),
                                 "!leavechannel" => {
                                     message.tags.push(Type::Command);
@@ -205,7 +253,7 @@ async fn main() {
                                     message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
                                     let mut metrics = METRICS.write().await;
-                                    metrics.add_user(message.display_name.unwrap_or_default());
+                                    metrics.add_user(&display_name);
                                     let metric_channels = metrics.channels.unwrap_or(0).to_string();
                                     let metric_users = metrics.users.unwrap_or(0).to_string();
                                     let metric_scriptures =
@@ -221,7 +269,7 @@ async fn main() {
                                         metrics.message_response_stats();
 
                                     format!(
-                                        "v{}, | Totals: {} channels, {} users, {} scriptures, {} Gospel Proclamations! | Current Metrics: {} uptime, {} messages parsed ({}ms avg), {} responses ({}ms avg)",
+                                        "v{}, | Totals: {} channels, {} users, {} scriptures, {} Gospel Proclamations! | Daily Metrics: {} uptime, {} messages parsed ({}ms avg), {} responses ({}ms avg)",
                                         env!("CARGO_PKG_VERSION"),
                                         metric_channels,
                                         metric_users,
@@ -240,7 +288,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_english();
                                     let mut metrics = METRICS.write().await;
-                                    metrics.add_user(message.display_name.unwrap_or_default());
+                                    metrics.add_user(&display_name);
                                     metrics.increment_gospels_english();
                                     message.tags.push(Type::Gospel);
                                     Some(GOSPEL.to_string())
@@ -249,7 +297,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_spanish();
                                     let mut metrics = METRICS.write().await;
-                                    metrics.add_user(message.display_name.unwrap_or_default());
+                                    metrics.add_user(&display_name);
                                     metrics.increment_gospels_spanish();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIO.to_string())
@@ -258,7 +306,7 @@ async fn main() {
                                     let mut config = Config::load(&display_name);
                                     config.add_account_metrics_gospel_german();
                                     let mut metrics = METRICS.write().await;
-                                    metrics.add_user(message.display_name.unwrap_or_default());
+                                    metrics.add_user(&display_name);
                                     metrics.increment_gospels_german();
                                     message.tags.push(Type::Gospel);
                                     Some(EVANGELIUM.to_string())
@@ -299,7 +347,7 @@ async fn main() {
                                         config.set_last_verse(&verses.last().unwrap().reference);
                                         config.add_account_metrics_scriptures();
                                         let mut metrics = METRICS.write().await;
-                                        metrics.add_user(message.display_name.unwrap_or_default());
+                                        metrics.add_user(&display_name);
                                         metrics.increment_scriptures();
                                         message.tags.push(Type::Scripture);
                                         Some(response_output.truncated)

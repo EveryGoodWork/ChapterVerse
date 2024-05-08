@@ -13,22 +13,40 @@ pub struct Verse {
 
 // #[derive(Default)]
 pub struct Bible {
-    index: HashMap<String, Verse>,
+    scriptures: HashMap<String, Verse>,
+    index: Vec<String>,
     regex: Regex,
 }
 
 impl Bible {
     pub fn new() -> Self {
         Self {
-            index: HashMap::new(),
+            scriptures: HashMap::new(),
+            index: Vec::new(),
             regex: Regex::new(r"(?i)(\d?\s?[a-z]+\s?\d?)\s(\d+):(\d+)(?:-(\d+))?")
                 .expect("Invalid regex pattern"),
         }
     }
 
     pub fn insert(&mut self, scripture: Verse) {
-        self.index.insert(scripture.reference.clone(), scripture);
+        self.scriptures
+            .insert(scripture.reference.clone(), scripture.clone());
+        self.index.push(scripture.reference.clone());
     }
+
+    pub fn get_next_scripture(&self, current_reference: &str, verses: usize) -> Vec<Verse> {
+        self.index
+            .iter()
+            .position(|r| r == current_reference)
+            .and_then(|pos| self.index.get(pos + 1..pos + 1 + verses))
+            .map_or(Vec::new(), |references| {
+                references
+                    .iter()
+                    .flat_map(|reference| self.get_scripture(reference))
+                    .collect()
+            })
+    }
+
     pub fn get_scripture(&self, reference: &str) -> Vec<Verse> {
         let mut verses = Vec::new();
         if let Some(caps) = self.regex.captures(reference) {
@@ -45,7 +63,7 @@ impl Bible {
                 let book_name = Self::get_bible_book_name(book_abbr);
                 for verse_num in start_verse..=end_verse {
                     let formatted_ref = format!("{} {}:{}", book_name, chapter, verse_num);
-                    if let Some(verse) = self.index.get(&formatted_ref) {
+                    if let Some(verse) = self.scriptures.get(&formatted_ref) {
                         verses.push(verse.clone());
                     }
                 }
@@ -55,7 +73,7 @@ impl Bible {
     }
 
     pub fn len(&self) -> usize {
-        self.index.len()
+        self.scriptures.len()
     }
 
     pub fn is_empty(&self) -> bool {
