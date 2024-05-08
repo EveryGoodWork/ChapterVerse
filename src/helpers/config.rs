@@ -236,6 +236,19 @@ impl Config {
         }
     }
 
+    pub fn get_last_verse_and_translation(&self) -> Option<(String, String)> {
+        self.account.as_ref().and_then(|acc| {
+            acc.bible.as_ref().and_then(|bible| {
+                bible.last_verse.clone().and_then(|verse| {
+                    bible
+                        .last_translation
+                        .clone()
+                        .map(|translation| (verse, translation))
+                })
+            })
+        })
+    }
+
     pub fn get_translation(&self) -> Option<String> {
         self.account.as_ref().and_then(|acc| {
             acc.bible.as_ref().and_then(|bible| {
