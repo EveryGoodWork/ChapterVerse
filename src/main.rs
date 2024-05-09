@@ -1,10 +1,10 @@
 use bible::scripture::bible::Bible;
-use commands::{evangelio, evangelium, gospel, help, translation, votd};
+use commands::{evangelio, evangelium, gospel, help, next, translation, votd};
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::{
-    get_running_time, initialize_statics, METRICS, START_DATETIME_LOCAL_STRING,
-    START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
+    get_running_time, initialize_statics, CHANNELS_PER_LISTENER, DEFAULT_TRANSLATION, METRICS,
+    REPLY_CHARACTER_LIMIT, START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
 };
 use helpers::Metrics;
 use tokio::sync::mpsc;
@@ -24,12 +24,6 @@ use helpers::statics::{BIBLES, CHANNELS_TO_JOIN};
 
 mod commands;
 mod helpers;
-
-const CHANNELS_PER_LISTENER: usize = 5;
-// TODO! Remove the debug deduction for the (7.7118ms) - 10 characters
-const REPLY_CHARACTER_LIMIT: usize = 500 - 10;
-// The only reason we use KJV as default is because it's free to use from copywrite restrictions.
-const DEFAULT_TRANSLATION: &str = "KJV";
 
 #[tokio::main]
 async fn main() {
@@ -92,6 +86,7 @@ async fn main() {
                             reply = match command.as_str() {
                                 "!help" => {
                                     message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
                                     help(avaialble_bibles)
                                 }
                                 "!joinchannel" => {
@@ -151,57 +146,68 @@ async fn main() {
                                 }
                                 "!votd" => {
                                     message.tags.push(Type::Command);
-                                    votd().await
+                                    votd(&display_name, params).await
                                 }
                                 "!random" => Some("Display a random verse.".to_string()),
                                 "!next" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
 
-                                    let mut config = Config::load(&display_name);
-                                    let verses = params
-                                        .get(0)
-                                        .and_then(|s| s.parse::<usize>().ok())
-                                        .map(|number| number.clamp(1, 10))
-                                        .unwrap_or(1);
-
-                                    if let Some((last_verse, last_translation)) =
-                                        config.get_last_verse_and_translation()
-                                    {
-                                        if let Some(bible_arc) = BIBLES.get(&last_translation) {
-                                            let bible: &Bible = &*bible_arc;
-                                            let verses =
-                                                bible.get_next_scripture(&last_verse, verses);
-
-                                            if verses.is_empty() {
-                                                message.tags.push(Type::NotScripture);
-                                                None
-                                            } else {
-                                                let adjusted_character_limit = REPLY_CHARACTER_LIMIT
-                                                    - (message.display_name.unwrap().len() + 1);
-
-                                                let response_output = ResponseBuilder::build(
-                                                    &verses,
-                                                    adjusted_character_limit,
-                                                    &last_translation,
-                                                );
-                                                config.set_last_verse(
-                                                    &verses.last().unwrap().reference,
-                                                );
-                                                config.add_account_metrics_scriptures();
-                                                Metrics::increment_total_scriptures(&METRICS).await;
-                                                message.tags.push(Type::Scripture);
-
-                                                Some(response_output.truncated)
-                                            }
-                                        } else {
-                                            eprintln!("No Bible version found for translation");
+                                    match next(&display_name, params).await {
+                                        Some(value) => {
+                                            Metrics::increment_total_scriptures(&METRICS).await;
+                                            message.tags.push(Type::Scripture);
+                                            Some(value)
+                                        }
+                                        None => {
+                                            message.tags.push(Type::NotScripture);
                                             None
                                         }
-                                    } else {
-                                        eprintln!("No verse or translation available");
-                                        None
                                     }
+                                    // let mut config = Config::load(&display_name);
+                                    // let verses = params
+                                    //     .get(0)
+                                    //     .and_then(|s| s.parse::<usize>().ok())
+                                    //     .map(|number| number.clamp(1, 10))
+                                    //     .unwrap_or(1);
+
+                                    // if let Some((last_verse, last_translation)) =
+                                    //     config.get_last_verse_and_translation()
+                                    // {
+                                    //     if let Some(bible_arc) = BIBLES.get(&last_translation) {
+                                    //         let bible: &Bible = &*bible_arc;
+                                    //         let verses =
+                                    //             bible.get_next_scripture(&last_verse, verses);
+
+                                    //         if verses.is_empty() {
+                                    //             message.tags.push(Type::NotScripture);
+                                    //             None
+                                    //         } else {
+                                    //             let adjusted_character_limit = REPLY_CHARACTER_LIMIT
+                                    //                 - (message.display_name.unwrap().len() + 1);
+
+                                    //             let response_output = ResponseBuilder::build(
+                                    //                 &verses,
+                                    //                 adjusted_character_limit,
+                                    //                 &last_translation,
+                                    //             );
+                                    //             config.set_last_verse(
+                                    //                 &verses.last().unwrap().reference,
+                                    //             );
+                                    //             config.add_account_metrics_scriptures();
+                                    //             Metrics::increment_total_scriptures(&METRICS).await;
+                                    //             message.tags.push(Type::Scripture);
+
+                                    //             Some(response_output.truncated)
+                                    //         }
+                                    //     } else {
+                                    //         eprintln!("No Bible version found for translation");
+                                    //         None
+                                    //     }
+                                    // } else {
+                                    //     eprintln!("No verse or translation available");
+                                    //     None
+                                    // }
                                 }
                                 "!previous" => Some("Go to the previous item.".to_string()),
                                 "!leavechannel" => {
@@ -309,7 +315,7 @@ async fn main() {
                                         None
                                     } else {
                                         //@TwitchAccountName + 1 extra space because the name is included in the text that can't exceed 500.
-                                        let adjusted_character_limit = REPLY_CHARACTER_LIMIT
+                                        let adjusted_character_limit = *REPLY_CHARACTER_LIMIT
                                             - (message.display_name.unwrap().len() + 1);
                                         let response_output = ResponseBuilder::build(
                                             &verses,
@@ -397,7 +403,7 @@ async fn main() {
                     continue;
                 }
             }
-            for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
+            for chunk in CHANNELS_TO_JOIN.chunks(*CHANNELS_PER_LISTENER) {
                 let chunk_twitch_listener =
                     Arc::new(Listener::new(listener_transmitter_clone.clone()));
                 let listeners_lock = listeners_clone.lock();
