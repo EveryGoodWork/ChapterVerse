@@ -1,12 +1,8 @@
 use bible::scripture::bible::Bible;
-use commands::help;
-use commands::votd;
+use commands::{help, translation, votd};
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
-use helpers::statics::get_running_time;
-use helpers::statics::METRICS;
-use helpers::statics::START_DATETIME_LOCAL;
-use helpers::statics::TWITCH_ACCOUNT;
+use helpers::statics::{get_running_time, METRICS, START_DATETIME_LOCAL, TWITCH_ACCOUNT};
 use helpers::Metrics;
 use tokio::sync::mpsc;
 
@@ -15,9 +11,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use twitch::chat::client::WebSocketState;
-use twitch::chat::Listener;
-use twitch::chat::Replier;
+use twitch::chat::{client::WebSocketState, Listener, Replier};
 use twitch::common::message_data::{MessageData, Type};
 
 use helpers::config::Config;
@@ -151,27 +145,7 @@ async fn main() {
                                 }
                                 "!translation" => {
                                     message.tags.push(Type::Command);
-                                    let mut config = Config::load(&display_name);
-                                    let translation = params[0].to_uppercase();
-
-                                    if BIBLES.contains_key(&translation) {
-                                        config.preferred_translation(&translation);
-                                        Some(
-                                            format!(
-                                                "Set perferred translation: {}.",
-                                                config.get_translation().unwrap()
-                                            )
-                                            .to_string(),
-                                        )
-                                    } else {
-                                        Some(
-                                            format!(
-                                                "Available translations: {}.",
-                                                avaialble_bibles()
-                                            )
-                                            .to_string(),
-                                        )
-                                    }
+                                    translation(&display_name, params, avaialble_bibles).await
                                 }
                                 "!votd" => {
                                     message.tags.push(Type::Command);

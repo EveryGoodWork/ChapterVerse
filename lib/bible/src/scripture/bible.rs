@@ -176,13 +176,13 @@ impl Bible {
             "2 timothy" | "2 tim" | "2 ti" | "ii tim" | "ii ti" | "2timothy" | "2tim" | "2ti"
             | "2nd timothy" | "second timothy" => "2 Timothy",
             "titus" | "tit" | "ti" => "Titus",
-            "Pphilemon" | "philem" | "phm" | "pm" => "Philemon",
+            "Philemon" | "philem" | "phm" | "pm" => "Philemon",
             "hebrews" | "heb" => "Hebrews",
             "james" | "jas" | "jm" => "James",
             "1 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
             | "1peter" | "1pet" | "1pe" | "1pt" | "1p" | "1st peter" | "first peter" => "1 Peter",
-            "2 pet" | "2 pe" | "2 pt" | "2 p" | "ii pet" | "ii pe" | "ii pt" | "2peter"
-            | "2pet" | "2pe" | "2pt" | "2p" | "2nd peter" | "second peter" => "2 Peter",
+            "2 peter" | "2 pet" | "2 pe" | "2 pt" | "2 p" | "ii pet" | "ii pe" | "ii pt"
+            | "2peter" | "2pet" | "2pe" | "2pt" | "2p" | "2nd peter" | "second peter" => "2 Peter",
             "1 john" | "1 jhn" | "1 jn" | "1 j" | "1john" | "1jhn" | "1joh" | "1jn" | "1jo"
             | "1j" | "i john" | "i jhn" | "i joh" | "i jn" | "i jo" | "1st john" | "first john" => {
                 "1 John"

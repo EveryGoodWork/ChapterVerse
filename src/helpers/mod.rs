@@ -7,5 +7,6 @@ pub mod response_builder;
 pub mod statics;
 pub mod webscraper;
 
+pub use self::config::Config;
 pub use self::config_manager::ConfigManager;
 pub use self::metrics::Metrics;
