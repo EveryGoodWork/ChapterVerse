@@ -1,8 +1,11 @@
 use bible::scripture::bible::Bible;
-use commands::{help, translation, votd};
+use commands::{evangelio, evangelium, gospel, help, translation, votd};
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
-use helpers::statics::{get_running_time, METRICS, START_DATETIME_LOCAL, TWITCH_ACCOUNT};
+use helpers::statics::{
+    get_running_time, initialize_statics, METRICS, START_DATETIME_LOCAL_STRING,
+    START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
+};
 use helpers::Metrics;
 use tokio::sync::mpsc;
 
@@ -17,7 +20,7 @@ use twitch::common::message_data::{MessageData, Type};
 use helpers::config::Config;
 use helpers::env_variables::get_env_variable;
 use helpers::statics::{avaialble_bibles, find_bible};
-use helpers::statics::{BIBLES, CHANNELS_TO_JOIN, EVANGELIO, EVANGELIUM, GOSPEL};
+use helpers::statics::{BIBLES, CHANNELS_TO_JOIN};
 
 mod commands;
 mod helpers;
@@ -30,13 +33,11 @@ const DEFAULT_TRANSLATION: &str = "KJV";
 
 #[tokio::main]
 async fn main() {
+    initialize_statics();
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
-    // PrintCommand::Issue.print_message(
-    //     "Start UTC",
-    //     &START_DATETIME_UTC.format("%Y/%m/%d %H:%M").to_string(),
-    // );
-    PrintCommand::Issue.print_message("Start Local", &START_DATETIME_LOCAL);
+    PrintCommand::Issue.print_message("Start UTC", &START_DATETIME_UTC_STRING);
+    PrintCommand::Issue.print_message("Start Local", &START_DATETIME_LOCAL_STRING);
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
     for (bible_name, bible_arc) in BIBLES.iter() {
         let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
@@ -77,9 +78,10 @@ async fn main() {
                     match tag {
                         Type::None => (),
                         Type::Gospel => {
-                            let mut config = Config::load(&display_name);
-                            config.add_account_metrics_gospel_english();
-                            reply = Some(GOSPEL.to_string())
+                            message.tags.push(Type::Gospel);
+                            Metrics::add_user(&METRICS, &display_name).await;
+                            Metrics::increment_gospels_english(&METRICS).await;
+                            reply = gospel(&display_name);
                         }
                         Type::PossibleCommand => {
                             let message_text_lowercase = &message_text.as_str().to_lowercase();
@@ -264,28 +266,22 @@ async fn main() {
                                 "!setcommandprefix" => Some("Set the command prefix.".to_string()),
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
                                 "!gospel" => {
-                                    let mut config = Config::load(&display_name);
-                                    config.add_account_metrics_gospel_english();
+                                    message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_english(&METRICS).await;
-                                    message.tags.push(Type::Gospel);
-                                    Some(GOSPEL.to_string())
+                                    gospel(&display_name)
                                 }
                                 "!evangelio" => {
-                                    let mut config = Config::load(&display_name);
-                                    config.add_account_metrics_gospel_spanish();
+                                    message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_spanish(&METRICS).await;
-                                    message.tags.push(Type::Gospel);
-                                    Some(EVANGELIO.to_string())
+                                    evangelio(&display_name)
                                 }
                                 "!evangelium" => {
-                                    let mut config = Config::load(&display_name);
-                                    config.add_account_metrics_gospel_german();
+                                    message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_german(&METRICS).await;
-                                    message.tags.push(Type::Gospel);
-                                    Some(EVANGELIUM.to_string())
+                                    evangelium(&display_name)
                                 }
                                 _ => {
                                     // TODO - might be a scripture so possibly check it against that function.
@@ -456,7 +452,7 @@ async fn main() {
                         format!(
                             "ChapterVerse Version: {} | ONLINE: {}",
                             env!("CARGO_PKG_VERSION"),
-                            *START_DATETIME_LOCAL,
+                            *START_DATETIME_LOCAL_STRING,
                         )
                         .as_str(),
                     )
