@@ -1,5 +1,5 @@
 use bible::scripture::bible::Bible;
-use commands::{evangelio, evangelium, gospel, help, next, translation, votd};
+use commands::{evangelio, evangelium, gospel, help, next, support, translation, votd};
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::{
@@ -142,10 +142,12 @@ async fn main() {
                                 }
                                 "!translation" => {
                                     message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
                                     translation(&display_name, params, avaialble_bibles).await
                                 }
                                 "!votd" => {
                                     message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
                                     votd(&display_name, params).await
                                 }
                                 "!random" => Some("Display a random verse.".to_string()),
@@ -164,50 +166,6 @@ async fn main() {
                                             None
                                         }
                                     }
-                                    // let mut config = Config::load(&display_name);
-                                    // let verses = params
-                                    //     .get(0)
-                                    //     .and_then(|s| s.parse::<usize>().ok())
-                                    //     .map(|number| number.clamp(1, 10))
-                                    //     .unwrap_or(1);
-
-                                    // if let Some((last_verse, last_translation)) =
-                                    //     config.get_last_verse_and_translation()
-                                    // {
-                                    //     if let Some(bible_arc) = BIBLES.get(&last_translation) {
-                                    //         let bible: &Bible = &*bible_arc;
-                                    //         let verses =
-                                    //             bible.get_next_scripture(&last_verse, verses);
-
-                                    //         if verses.is_empty() {
-                                    //             message.tags.push(Type::NotScripture);
-                                    //             None
-                                    //         } else {
-                                    //             let adjusted_character_limit = REPLY_CHARACTER_LIMIT
-                                    //                 - (message.display_name.unwrap().len() + 1);
-
-                                    //             let response_output = ResponseBuilder::build(
-                                    //                 &verses,
-                                    //                 adjusted_character_limit,
-                                    //                 &last_translation,
-                                    //             );
-                                    //             config.set_last_verse(
-                                    //                 &verses.last().unwrap().reference,
-                                    //             );
-                                    //             config.add_account_metrics_scriptures();
-                                    //             Metrics::increment_total_scriptures(&METRICS).await;
-                                    //             message.tags.push(Type::Scripture);
-
-                                    //             Some(response_output.truncated)
-                                    //         }
-                                    //     } else {
-                                    //         eprintln!("No Bible version found for translation");
-                                    //         None
-                                    //     }
-                                    // } else {
-                                    //     eprintln!("No verse or translation available");
-                                    //     None
-                                    // }
                                 }
                                 "!previous" => Some("Go to the previous item.".to_string()),
                                 "!leavechannel" => {
@@ -235,7 +193,11 @@ async fn main() {
                                     )
                                 }
                                 "!myinfo" => Some("Display user's information.".to_string()),
-                                "!support" => Some("Display support options.".to_string()),
+                                "!support" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    support()
+                                }
                                 "!status" => Some({
                                     message.tags.push(Type::Command);
                                     // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
