@@ -1,4 +1,0 @@
-[settings]
-VOTD_URL = "https://www.bible.com/verse-of-the-day"
-VOTD_REGEX = "<title>Verse of the Day - (.+?)</title>"
-20240508 = "Isaiah 53:5"

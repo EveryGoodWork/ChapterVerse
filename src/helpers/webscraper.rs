@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{NaiveTime, Utc};
 use regex::Regex;
 use reqwest::{self, StatusCode};
 use std::error::Error;
@@ -6,9 +6,23 @@ use std::error::Error;
 use super::ConfigManager;
 
 pub async fn fetch_verse_of_the_day() -> Result<String, Box<dyn Error>> {
-    let today = Utc::now().format("%Y%m%d").to_string();
     let mut config_manager = ConfigManager::new("./votd_config.toml");
-    let mut votd = config_manager.get_string(&today, "");
+    let switch_time_str = config_manager.get_string("NEW_DAY_TIME", "01:00");
+    let switch_time = NaiveTime::parse_from_str(&switch_time_str, "%H:%M").unwrap_or_default();
+    let current_datetime = Utc::now();
+
+    println!("Current Time{}:", current_datetime);
+
+    let date_to_check = if current_datetime.time() > switch_time {
+        current_datetime.format("%Y%m%d").to_string()
+    } else {
+        (current_datetime - chrono::Duration::days(1))
+            .format("%Y%m%d")
+            .to_string()
+    };
+
+    println!("{}:", date_to_check);
+    let mut votd = config_manager.get_string(&date_to_check, "");
 
     if votd.is_empty() {
         let url = config_manager.get_string("VOTD_URL", "https://bible-api.com/?random=verse");
@@ -24,7 +38,7 @@ pub async fn fetch_verse_of_the_day() -> Result<String, Box<dyn Error>> {
 
         if let Some(caps) = re.captures(&body) {
             votd = caps.get(1).unwrap().as_str().to_string();
-            config_manager.set_string(&today, &votd);
+            config_manager.set_string(&date_to_check, &votd);
         } else {
             return Err("Verse reference not found".into());
         }
