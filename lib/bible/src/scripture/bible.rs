@@ -48,6 +48,22 @@ impl Bible {
             })
     }
 
+    pub fn get_previous_scripture(&self, current_reference: &str, verses: usize) -> Vec<Verse> {
+        self.index
+            .iter()
+            .position(|r| r == current_reference)
+            .and_then(|pos| {
+                let start_pos = if pos > verses { pos - verses } else { 0 };
+                self.index.get(start_pos..pos)
+            })
+            .map_or(Vec::new(), |references| {
+                references
+                    .iter()
+                    .flat_map(|reference| self.get_scripture(reference))
+                    .collect()
+            })
+    }
+
     pub fn get_scripture(&self, reference: &str) -> Vec<Verse> {
         let mut verses = Vec::new();
         if let Some(caps) = self.regex.captures(reference) {

@@ -172,7 +172,22 @@ async fn main() {
                                         }
                                     }
                                 }
-                                "!previous" => Some("Go to the previous item.".to_string()),
+                                "!previous" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match previous(&display_name, params).await {
+                                        Some(value) => {
+                                            Metrics::increment_total_scriptures(&METRICS).await;
+                                            message.tags.push(Type::Scripture);
+                                            Some(value)
+                                        }
+                                        None => {
+                                            message.tags.push(Type::NotScripture);
+                                            None
+                                        }
+                                    }
+                                }
                                 "!leavechannel" => {
                                     message.tags.push(Type::Command);
                                     let mut config = Config::load(&display_name);
