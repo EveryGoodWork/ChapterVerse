@@ -10,11 +10,15 @@ pub async fn translation(
     let invalid_parameter_message = "Please provide a valid translation identifier. Example: '!translation web'. Available translations:";
     let command_success = "Your preferred translation set to:";
 
-    if params.is_empty() || params[0] == "?" || params[0].to_lowercase() == "help" {
+    if params.is_empty()
+        || params
+            .get(0)
+            .map_or(false, |p| p == "?" || p.to_lowercase() == "help")
+    {
         return Some(help_message.to_string());
     }
 
-    if !params[0].is_ascii() {
+    if params.get(0).map_or(false, |p| !p.is_ascii()) {
         return Some(format!(
             "{} {}",
             invalid_parameter_message,

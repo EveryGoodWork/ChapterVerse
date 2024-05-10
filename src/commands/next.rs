@@ -5,7 +5,10 @@ use bible::scripture::bible::Bible;
 pub async fn next(display_name: &str, params: Vec<String>) -> Option<String> {
     let help_message =
         "Next Help: Responds with the next verse in order, based on the last verse referenced, with the specified translation. You can optionally specify the number of verses you would like returned. Usage: !next | !next 2";
-    if params[0] == "?" || params[0].to_lowercase() == "help" {
+    if params
+        .get(0)
+        .map_or(false, |p| p == "?" || p.to_lowercase() == "help")
+    {
         return Some(help_message.to_string());
     }
 

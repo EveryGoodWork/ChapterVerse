@@ -7,7 +7,10 @@ use bible::scripture::bible::Bible;
 pub async fn votd(display_name: &str, params: Vec<String>) -> Option<String> {
     let help_message =
         "Verse of the Day (VOTD) Help: Retrieves daily verse from an external source. Usage: !votd";
-    if params[0] == "?" || params[0].to_lowercase() == "help" {
+    if params
+        .get(0)
+        .map_or(false, |p| p == "?" || p.to_lowercase() == "help")
+    {
         return Some(help_message.to_string());
     }
 
