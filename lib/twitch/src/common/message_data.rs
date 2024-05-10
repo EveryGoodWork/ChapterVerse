@@ -11,6 +11,7 @@ pub enum Type {
     Gospel,
     None,
     Ignore,
+    ExcludeMetrics,
 }
 
 #[derive(Debug, Clone)]

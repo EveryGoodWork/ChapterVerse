@@ -1,3 +1,4 @@
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use std::collections::HashMap;
 
@@ -70,6 +71,14 @@ impl Bible {
             }
         }
         verses
+    }
+
+    pub fn random_scripture(&self) -> Vec<Verse> {
+        self.index
+            .get(thread_rng().gen_range(0..self.index.len()))
+            .and_then(|reference| self.scriptures.get(reference))
+            .map(|verse| vec![verse.clone()])
+            .unwrap_or_else(Vec::new)
     }
 
     pub fn len(&self) -> usize {

@@ -1,5 +1,5 @@
 use bible::scripture::bible::Bible;
-use commands::{evangelio, evangelium, gospel, help, next, support, translation, votd};
+use commands::*;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::{
@@ -147,10 +147,15 @@ async fn main() {
                                 }
                                 "!votd" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     votd(&display_name, params).await
                                 }
-                                "!random" => Some("Display a random verse.".to_string()),
+                                "!random" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    random(&display_name, params).await
+                                }
                                 "!next" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
@@ -313,7 +318,9 @@ async fn main() {
                         Some(ref reply_value) => {
                             let mut metrics = METRICS.write().await;
                             let duration = message.complete().unwrap_or_default();
-                            metrics.message_response(duration);
+                            if !message.tags.contains(&Type::ExcludeMetrics) {
+                                metrics.message_response(duration);
+                            }
 
                             println!("Tages: {:?}", message.tags);
                             message.reply = Some(format!("{} ({}ms)", reply_value, duration));
