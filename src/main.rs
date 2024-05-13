@@ -91,6 +91,8 @@ async fn main() {
                                 }
                                 "!joinchannel" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+
                                     let mut config = Config::load(&display_name);
 
                                     Metrics::add_user_and_channel(&METRICS, &display_name).await;
@@ -190,6 +192,7 @@ async fn main() {
                                 }
                                 "!leavechannel" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
                                     let mut config = Config::load(&display_name);
                                     config.leave_channel();
                                     Metrics::add_user(&METRICS, &display_name).await;
