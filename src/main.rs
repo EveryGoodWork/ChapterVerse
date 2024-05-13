@@ -62,6 +62,18 @@ async fn main() {
     // **Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
+            let text_to_lowercase = message.text.to_lowercase();
+
+            if text_to_lowercase.starts_with("!") {
+                message.tags.push(Type::PossibleCommand);
+            } else if text_to_lowercase.contains("gospel message") {
+                message.tags.push(Type::Gospel);
+            } else if text_to_lowercase.contains(":") {
+                message.tags.push(Type::PossibleScripture);
+            } else if message.tags.is_empty() {
+                message.tags.push(Type::None);
+            }
+
             let mut reply: Option<String> = None;
             let display_name = message.display_name.unwrap();
             let message_text = message.text.to_string();
