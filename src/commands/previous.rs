@@ -30,7 +30,6 @@ pub async fn previous(display_name: &str, params: Vec<String>) -> Option<String>
                     match verses.is_empty() {
                         true => None,
                         false => {
-                            //let verses_in_order = verses.iter().rev().collect::<Vec<_>>();
                             let adjusted_character_limit =
                                 *REPLY_CHARACTER_LIMIT - (display_name.len() + 1);
                             let response_output = ResponseBuilder::build(

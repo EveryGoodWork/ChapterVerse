@@ -282,6 +282,82 @@ impl Config {
         self.save();
     }
 
+    pub fn get_details(&self) -> String {
+        let binding = String::new();
+        let username = self
+            .account
+            .as_ref()
+            .and_then(|acc| acc.username.as_ref())
+            .unwrap_or(&binding);
+        let translation = self
+            .account
+            .as_ref()
+            .and_then(|acc| {
+                acc.bible
+                    .as_ref()
+                    .and_then(|bbl| bbl.last_translation.as_ref())
+            })
+            .unwrap_or(&binding);
+        let date_added = self
+            .account
+            .as_ref()
+            .and_then(|acc| acc.created_date.as_ref())
+            .map(|dt| dt.format("%b %d, %Y").to_string())
+            .unwrap_or_default();
+        let last_verse = self
+            .account
+            .as_ref()
+            .and_then(|acc| acc.bible.as_ref().and_then(|bbl| bbl.last_verse.as_ref()))
+            .unwrap_or(&binding);
+        let total_scriptures = self
+            .account
+            .as_ref()
+            .and_then(|acc| {
+                acc.metrics
+                    .as_ref()
+                    .and_then(|mtr| mtr.scriptures.map(|s| s.to_string()))
+            })
+            .unwrap_or_default();
+        let last_updated = self
+            .account
+            .as_ref()
+            .and_then(|acc| acc.modified_date.as_ref())
+            .map(|dt| dt.format("%b %d, %Y, %I:%M:%S %p").to_string())
+            .unwrap_or_default();
+
+        let total_gospels = self
+            .account
+            .as_ref()
+            .and_then(|acc| {
+                acc.metrics.as_ref().map(|mtr| {
+                    mtr.gospels_english.unwrap_or(0)
+                        + mtr.gospels_spanish.unwrap_or(0)
+                        + mtr.gospels_german.unwrap_or(0)
+                })
+            })
+            .unwrap_or(0);
+
+        let channel_name = self
+            .channel
+            .as_ref()
+            .and_then(|chn| chn.from_channel.as_ref())
+            .unwrap_or(&binding);
+        let joined_channel = self
+            .channel
+            .as_ref()
+            .and_then(|chn| chn.active)
+            .unwrap_or(false);
+        let join_date = self
+            .channel
+            .as_ref()
+            .and_then(|chn| chn.join_date.as_ref())
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or(String::from("Not joined"));
+
+        format!("Username: {} | Translation: {} | DateAdded: {} | Last Scripture: {} | Total Scriptures: {} | Gospels Total: {} | Channel: {} | Joined: {} | Join Date: {} | Updated: {}", 
+                username, translation, date_added, last_verse, total_scriptures, total_gospels, channel_name, joined_channel, join_date, last_updated)
+    }
+
     pub fn get_channels() -> Vec<String> {
         match fs::read_dir(CONFIGS_PATH) {
             Ok(entries) => entries
@@ -332,6 +408,21 @@ impl Config {
                 println!("Failed to read directory '{}': {}", CONFIGS_PATH, err);
                 Vec::new() // Return an empty vector if the directory read fails
             }
+        }
+    }
+
+    pub fn delete(&self) {
+        if let Some(username) = self.account.as_ref().and_then(|a| a.username.as_ref()) {
+            let sanitized_username = sanitize_filename::sanitize(username);
+            let file_path = format!("{}/{}.toml", CONFIGS_PATH, sanitized_username);
+            let path = Path::new(&file_path);
+            if path.exists() {
+                if let Err(e) = fs::remove_file(path) {
+                    eprintln!("Failed to delete file {}: {}", file_path, e);
+                }
+            }
+        } else {
+            eprintln!("Username is missing, cannot delete file.");
         }
     }
 

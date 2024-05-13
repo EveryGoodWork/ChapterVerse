@@ -1,15 +1,18 @@
 pub mod gospel;
 pub mod help;
+pub mod myinfo;
 pub mod next;
 pub mod previous;
 pub mod random;
 pub mod support;
 pub mod translation;
 pub mod votd;
+
 pub use self::gospel::evangelio;
 pub use self::gospel::evangelium;
 pub use self::gospel::gospel;
 pub use self::help::help;
+pub use self::myinfo::myinfo;
 pub use self::next::next;
 pub use self::previous::previous;
 pub use self::random::random;

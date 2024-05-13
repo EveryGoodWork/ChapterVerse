@@ -215,7 +215,15 @@ async fn main() {
                                         .to_string(),
                                     )
                                 }
-                                "!myinfo" => Some("Display user's information.".to_string()),
+                                "!myinfo" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match myinfo(&display_name, params).await {
+                                        Some(value) => Some(value),
+                                        None => None,
+                                    }
+                                }
                                 "!support" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
