@@ -3,8 +3,9 @@ use commands::*;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
 use helpers::statics::{
-    get_running_time, initialize_statics, CHANNELS_PER_LISTENER, DEFAULT_TRANSLATION, METRICS,
-    REPLY_CHARACTER_LIMIT, START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
+    get_running_time, initialize_statics, lookup_command_prefix, update_command_prefix,
+    CHANNELS_PER_LISTENER, DEFAULT_TRANSLATION, METRICS, REPLY_CHARACTER_LIMIT,
+    START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
 };
 use helpers::Metrics;
 use tokio::sync::mpsc;
@@ -62,25 +63,40 @@ async fn main() {
     // **Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
-            let text_to_lowercase = message.text.to_lowercase();
+            // let tags = message.tags.clone();
 
-            if text_to_lowercase.starts_with("!") {
-                message.tags.push(Type::PossibleCommand);
-            } else if text_to_lowercase.contains("gospel message") {
-                message.tags.push(Type::Gospel);
-            } else if text_to_lowercase.contains(":") {
-                message.tags.push(Type::PossibleScripture);
-            } else if message.tags.is_empty() {
-                message.tags.push(Type::None);
-            }
+            if !message.tags.contains(&Type::Ignore) {
+                println!("Message RAW: {}", message.text);
+                let channel = &message.channel;
+                let prefix = lookup_command_prefix(channel);
+                let mut message_text_lowercase = message.text.to_lowercase();
 
-            let mut reply: Option<String> = None;
-            let display_name = message.display_name.unwrap();
-            let message_text = message.text.to_string();
-            let tags = message.tags.clone();
+                println!("BEFORE message_text_lowercase: {}", message_text_lowercase);
 
-            if !tags.contains(&Type::Ignore) {
-                for tag in tags {
+                if message_text_lowercase.starts_with(prefix) {
+                    message_text_lowercase.replace_range(0..1, "!");
+                    message.tags.push(Type::PossibleCommand);
+                }
+                println!("AFTER message_text_lowercase: {}", message_text_lowercase);
+
+                if message_text_lowercase.contains("gospel message") {
+                    message.tags.push(Type::Gospel);
+                }
+                if message_text_lowercase.contains(":") {
+                    message.tags.push(Type::PossibleScripture);
+                }
+                //Not sure this is needed.
+                if message.tags.is_empty() {
+                    message.tags.push(Type::None);
+                }
+
+                let mut reply: Option<String> = None;
+                let display_name = message.display_name.unwrap();
+                let message_text = message.text.to_string();
+
+                println!("{:?}", message.tags);
+
+                for tag in message.tags.clone() {
                     match tag {
                         Type::None => (),
                         Type::Gospel => {
@@ -90,16 +106,16 @@ async fn main() {
                             reply = gospel(&display_name);
                         }
                         Type::PossibleCommand => {
-                            let message_text_lowercase = &message_text.as_str().to_lowercase();
                             let mut parts = message_text_lowercase.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
+                            println!("command: {}", command);
                             let params: Vec<String> = parts.map(|s| s.to_string()).collect();
 
                             reply = match command.as_str() {
                                 "!help" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
-                                    help(avaialble_bibles)
+                                    help(avaialble_bibles, &prefix)
                                 }
                                 "!joinchannel" => {
                                     message.tags.push(Type::Command);
@@ -110,7 +126,7 @@ async fn main() {
                                     Metrics::add_user_and_channel(&METRICS, &display_name).await;
 
                                     if !config.channel.as_ref().unwrap().active.unwrap_or(false) {
-                                        config.join_channel(message.channel.to_string());
+                                        config.join_channel(&channel);
                                         let new_twitch_listener = Arc::new(Listener::new(
                                             listener_transmitter_clone.clone(),
                                         ));
@@ -147,7 +163,7 @@ async fn main() {
                                             format!(
                                                 "Already joined {} from {} on : {}",
                                                 message.display_name.unwrap_or_default(),
-                                                config.from_channel(),
+                                                config.get_from_channel(),
                                                 config.join_date()
                                             )
                                             .to_string(),
@@ -229,6 +245,7 @@ async fn main() {
                                 }
                                 "!myinfo" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
                                     Metrics::add_user(&METRICS, &display_name).await;
 
                                     match myinfo(&display_name, params).await {
@@ -274,7 +291,22 @@ async fn main() {
                                         average_response_time,
                                     )
                                 }),
-                                "!setcommandprefix" => Some("Set the command prefix.".to_string()),
+                                "!commandprefix" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match commandprefix(&display_name, params).await {
+                                        (Some(message), prefix) => {
+                                            update_command_prefix(
+                                                &display_name.to_string(),
+                                                &prefix,
+                                            );
+                                            Some(message)
+                                        }
+                                        (None, _) => None,
+                                    }
+                                }
                                 "!setvotd" => Some("Set the verse of the day.".to_string()),
                                 "!gospel" => {
                                     message.tags.push(Type::Gospel);
@@ -372,10 +404,10 @@ async fn main() {
                             echo_message.channel = TWITCH_ACCOUNT.to_string();
                             echo_message.reply = Some(format!(
                                 "http://twitch.tv/{} {} \"{}\" : {}",
-                                message.channel,
-                                message.display_name.clone().unwrap_or_default(),
-                                message.text,
-                                message.reply.clone().unwrap_or_default()
+                                &channel,
+                                message.display_name.as_ref().map(|s| s).unwrap_or(&""),
+                                &message.text,
+                                message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
                             ));
                             echo_message.id = None;
                             if let Err(e) =

@@ -4,6 +4,7 @@ use crate::helpers::Metrics;
 use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
 use chrono::{DateTime, Local, Utc};
+use dashmap::DashMap;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
@@ -34,15 +35,16 @@ lazy_static! {
     pub static ref START_DATETIME_UTC: DateTime<Utc> = Utc::now();
     pub static ref START_DATETIME_UTC_STRING: String = START_DATETIME_UTC.format("%Y/%m/%d %H:%M UTC").to_string();
 
+    static ref COMMAND_PREFIXES: DashMap<String, char> = DashMap::new();
 
-pub static ref START_DATETIME_LOCAL: DateTime<Local> = Local::now();
-pub static ref START_DATETIME_LOCAL_STRING: String = {
-    let timezone_str = match START_DATETIME_LOCAL.format("%Z").to_string().as_str() {
-        "-07:00" => "PDT",
-        "-08:00" => "PST",
-        _ => "",
-    };
-    format!("{} {}", START_DATETIME_LOCAL.format("%Y/%m/%d %H:%M").to_string(), timezone_str)
+    pub static ref START_DATETIME_LOCAL: DateTime<Local> = Local::now();
+    pub static ref START_DATETIME_LOCAL_STRING: String = {
+        let timezone_str = match START_DATETIME_LOCAL.format("%Z").to_string().as_str() {
+            "-07:00" => "PDT",
+            "-08:00" => "PST",
+            _ => "",
+        };
+        format!("{} {}", START_DATETIME_LOCAL.format("%Y/%m/%d %H:%M").to_string(), timezone_str)
 };
 
 pub static ref BIBLES_REGEX: Regex = {
@@ -53,7 +55,6 @@ pub static ref BIBLES_REGEX: Regex = {
 #[derive(Debug)]
 pub static ref CHANNELS_TO_JOIN: Vec<String> = Config::get_channels();
 
-//pub static ref METRICS: Arc<Mutex<metrics::Metrics>> = Arc::new(Mutex::new(metrics::Metrics::default()));
 pub static ref METRICS: Arc<RwLock<Metrics>> = Arc::new(RwLock::new(Metrics::default()));
 
 
@@ -136,4 +137,36 @@ pub fn get_running_time() -> String {
     let minutes = duration.num_minutes() % 60;
     let running_time = format!("{:02}d {}h {}m", days, hours, minutes);
     running_time
+}
+
+pub fn lookup_command_prefix(channel: &str) -> char {
+    let channel_lower = channel.to_lowercase();
+    if let Some(prefix) = COMMAND_PREFIXES.get(&channel_lower) {
+        println!(
+            "FROM COMMAND_PREFIXES CACHE: {} Command: '{}'",
+            &channel_lower,
+            &prefix.to_string()
+        );
+        return *prefix;
+    }
+    let config = Config::load(&channel_lower);
+    let fetched_prefix = config.get_command_prefix();
+    COMMAND_PREFIXES.insert(channel_lower.clone(), fetched_prefix);
+    println!(
+        "FETCHED COMMAND_PREFIXES UPDATED CACHE: {} Command: '{}'",
+        &channel_lower,
+        &fetched_prefix.to_string()
+    );
+    fetched_prefix
+}
+
+pub fn update_command_prefix(channel: &String, prefix: &char) {
+    let channel_lower = channel.to_lowercase();
+    println!("Channel: {} Command: '{}'", &channel_lower, &prefix);
+    COMMAND_PREFIXES.insert(channel_lower.clone(), *prefix);
+    println!(
+        "COMMAND_PREFIXES: {} Command: '{}'",
+        &channel_lower,
+        COMMAND_PREFIXES.get(&channel_lower).unwrap().to_string()
+    );
 }

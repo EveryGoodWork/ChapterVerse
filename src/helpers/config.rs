@@ -63,6 +63,12 @@ pub struct Channel {
     pub bible: Option<Bible>,
     #[serde(default)]
     pub metrics: Option<Metrics>,
+    #[serde(default = "default_command_prefix")]
+    pub command_prefix: Option<char>,
+}
+
+fn default_command_prefix() -> Option<char> {
+    Some('!')
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -134,6 +140,7 @@ impl Config {
                     gospels_spanish: Some(0),
                     gospels_german: Some(0),
                 }),
+                command_prefix: Some('!'),
             }),
         }
     }
@@ -200,12 +207,12 @@ impl Config {
         }
     }
 
-    pub fn join_channel(&mut self, from_channel: String) {
+    pub fn join_channel(&mut self, from_channel: &str) {
         if let Some(channel) = &mut self.channel {
             channel.active = Some(true);
             channel.join_date = Some(Utc::now());
             channel.part_date = None;
-            channel.from_channel = Some(from_channel);
+            channel.from_channel = Some(from_channel.to_owned());
             self.add_note("!joinchannel".to_owned());
             if let Some(account) = &mut self.account {
                 account.modified_date = Some(Utc::now());
@@ -426,11 +433,28 @@ impl Config {
         }
     }
 
-    pub fn from_channel(&self) -> String {
+    pub fn get_from_channel(&self) -> String {
         self.channel
             .as_ref()
             .and_then(|c| c.from_channel.clone())
             .unwrap_or_default()
+    }
+
+    pub fn get_command_prefix(&self) -> char {
+        self.channel
+            .as_ref()
+            .and_then(|c| c.command_prefix.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn set_command_prefix(&mut self, prefix: &char) {
+        if let Some(channel) = &mut self.channel {
+            channel.command_prefix = Some(*prefix);
+            if let Some(account) = &mut self.account {
+                account.modified_date = Some(Utc::now());
+            };
+            self.save();
+        }
     }
 
     pub fn join_date(&self) -> String {
