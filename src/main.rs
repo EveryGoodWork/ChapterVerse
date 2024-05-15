@@ -66,18 +66,14 @@ async fn main() {
             // let tags = message.tags.clone();
 
             if !message.tags.contains(&Type::Ignore) {
-                println!("Message RAW: {}", message.text);
                 let channel = &message.channel;
                 let prefix = lookup_command_prefix(channel);
                 let mut message_text_lowercase = message.text.to_lowercase();
-
-                println!("BEFORE message_text_lowercase: {}", message_text_lowercase);
 
                 if message_text_lowercase.starts_with(prefix) {
                     message_text_lowercase.replace_range(0..1, "!");
                     message.tags.push(Type::PossibleCommand);
                 }
-                println!("AFTER message_text_lowercase: {}", message_text_lowercase);
 
                 if message_text_lowercase.contains("gospel message") {
                     message.tags.push(Type::Gospel);
@@ -85,7 +81,7 @@ async fn main() {
                 if message_text_lowercase.contains(":") {
                     message.tags.push(Type::PossibleScripture);
                 }
-                //Not sure this is needed.
+
                 if message.tags.is_empty() {
                     message.tags.push(Type::None);
                 }
@@ -93,8 +89,6 @@ async fn main() {
                 let mut reply: Option<String> = None;
                 let display_name = message.display_name.unwrap();
                 let message_text = message.text.to_string();
-
-                println!("{:?}", message.tags);
 
                 for tag in message.tags.clone() {
                     match tag {
@@ -108,7 +102,6 @@ async fn main() {
                         Type::PossibleCommand => {
                             let mut parts = message_text_lowercase.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
-                            println!("command: {}", command);
                             let params: Vec<String> = parts.map(|s| s.to_string()).collect();
 
                             reply = match command.as_str() {
@@ -392,7 +385,6 @@ async fn main() {
                                 metrics.message_response(duration);
                             }
 
-                            println!("Tages: {:?}", message.tags);
                             message.reply = Some(format!("{} ({}ms)", reply_value, duration));
                             if let Err(e) =
                                 { replier_transmitter_clone.message_tx.send(message.clone()) }

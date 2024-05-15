@@ -65,7 +65,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             let bibles_directory = match env::current_dir().map(|dir| dir.join(import_bibles_path)) {
                 Ok(dir) => dir,
                 Err(e) => {
-                    println!("Error getting current directory: {}", e);
+                    eprintln!("Error getting current directory: {}", e);
                     return Arc::new(HashMap::new());
                 }
             };
@@ -75,7 +75,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             let files = match fs::read_dir(bibles_directory) {
                 Ok(files) => files,
                 Err(e) => {
-                    println!("Error reading bibles directory: {}", e);
+                    eprintln!("Error reading bibles directory: {}", e);
                     return Arc::new(HashMap::new());
                 }
             };
@@ -84,7 +84,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
                 let entry = match file {
                     Ok(entry) => entry,
                     Err(e) => {
-                        println!("Error reading file in directory: {}", e);
+                        eprintln!("Error reading file in directory: {}", e);
                         continue; // Skip to the next iteration
                     }
                 };
@@ -105,7 +105,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
                             bibles.insert(file_stem, Arc::new(imported_bible));
                         }
                         Err(err) => {
-                            println!("Error running import for file '{}': {}", file_path, err);
+                            eprintln!("Error running import for file '{}': {}", file_path, err);
                         }
                     }
                 }
@@ -142,31 +142,15 @@ pub fn get_running_time() -> String {
 pub fn lookup_command_prefix(channel: &str) -> char {
     let channel_lower = channel.to_lowercase();
     if let Some(prefix) = COMMAND_PREFIXES.get(&channel_lower) {
-        println!(
-            "FROM COMMAND_PREFIXES CACHE: {} Command: '{}'",
-            &channel_lower,
-            &prefix.to_string()
-        );
         return *prefix;
     }
     let config = Config::load(&channel_lower);
     let fetched_prefix = config.get_command_prefix();
     COMMAND_PREFIXES.insert(channel_lower.clone(), fetched_prefix);
-    println!(
-        "FETCHED COMMAND_PREFIXES UPDATED CACHE: {} Command: '{}'",
-        &channel_lower,
-        &fetched_prefix.to_string()
-    );
     fetched_prefix
 }
 
 pub fn update_command_prefix(channel: &String, prefix: &char) {
     let channel_lower = channel.to_lowercase();
-    println!("Channel: {} Command: '{}'", &channel_lower, &prefix);
     COMMAND_PREFIXES.insert(channel_lower.clone(), *prefix);
-    println!(
-        "COMMAND_PREFIXES: {} Command: '{}'",
-        &channel_lower,
-        COMMAND_PREFIXES.get(&channel_lower).unwrap().to_string()
-    );
 }

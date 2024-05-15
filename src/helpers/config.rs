@@ -372,7 +372,7 @@ impl Config {
                     let entry = match entry {
                         Ok(e) => e,
                         Err(err) => {
-                            println!("Failed to process an entry: {}", err);
+                            eprintln!("Failed to process an entry: {}", err);
                             return None;
                         }
                     };
@@ -392,7 +392,7 @@ impl Config {
                                     }
                                 }
                                 Err(err) => {
-                                    println!(
+                                    eprintln!(
                                         "Failed to deserialize TOML content from {}: {}",
                                         path.display(),
                                         err
@@ -401,18 +401,18 @@ impl Config {
                                 }
                             },
                             Err(err) => {
-                                println!("Failed to read file {}: {}", path.display(), err);
+                                eprintln!("Failed to read file {}: {}", path.display(), err);
                                 None
                             }
                         }
                     } else {
-                        println!("Skipped non-TOML file or directory: {:?}", path);
+                        eprintln!("Skipped non-TOML file or directory: {:?}", path);
                         None
                     }
                 })
                 .collect(),
             Err(err) => {
-                println!("Failed to read directory '{}': {}", CONFIGS_PATH, err);
+                eprintln!("Failed to read directory '{}': {}", CONFIGS_PATH, err);
                 Vec::new() // Return an empty vector if the directory read fails
             }
         }
