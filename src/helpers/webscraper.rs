@@ -11,8 +11,6 @@ pub async fn fetch_verse_of_the_day() -> Result<String, Box<dyn Error>> {
     let switch_time = NaiveTime::parse_from_str(&switch_time_str, "%H:%M").unwrap_or_default();
     let current_datetime = Utc::now();
 
-    println!("Current Time{}:", current_datetime);
-
     let date_to_check = if current_datetime.time() > switch_time {
         current_datetime.format("%Y%m%d").to_string()
     } else {
@@ -21,7 +19,7 @@ pub async fn fetch_verse_of_the_day() -> Result<String, Box<dyn Error>> {
             .to_string()
     };
 
-    println!("{}:", date_to_check);
+    // println!("{}:", date_to_check);
     let mut votd = config_manager.get_string(&date_to_check, "");
 
     if votd.is_empty() {

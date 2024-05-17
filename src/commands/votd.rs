@@ -56,7 +56,6 @@ pub async fn votd(channel: &str, display_name: &str, params: Vec<String>) -> Opt
 
             let votd_scripture = match votd_reference {
                 Some(ref reference) => {
-                    println!("Verse of the Day: {}", reference);
                     let translation = config
                         .get_translation()
                         .unwrap_or_else(|| DEFAULT_TRANSLATION.to_string());
@@ -86,7 +85,7 @@ pub async fn votd(channel: &str, display_name: &str, params: Vec<String>) -> Opt
                     }
                 }
                 None => {
-                    println!("Error: No Verse of the Day found");
+                    eprintln!("Error: No Verse of the Day found");
                     None
                 }
             };

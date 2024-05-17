@@ -398,7 +398,10 @@ impl Config {
                             Ok(content) => match toml::from_str::<Config>(&content) {
                                 Ok(config) => {
                                     if config.channel.as_ref()?.active.unwrap_or(false) {
-                                        println!("Channel is active: {:?}", path);
+                                        println!(
+                                            "Channel is active: {}",
+                                            config.account.as_ref()?.username.as_ref()?.to_string()
+                                        );
                                         config.account?.username
                                     } else {
                                         None
@@ -497,109 +500,121 @@ impl Config {
     }
 
     pub fn add_account_metrics_gospel_english(&mut self) {
-        if let Some(account) = self.account.as_mut() {
-            if let Some(metrics) = account.metrics.as_mut() {
-                if let Some(gospels_english) = metrics.gospels_english.as_mut() {
-                    *gospels_english += 1;
-                } else {
-                    metrics.gospels_english = Some(1);
-                }
-                self.save();
+        if let Some(gospels_english) = self
+            .account
+            .as_mut()
+            .and_then(|acc| acc.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_english.as_mut())
+        {
+            *gospels_english += 1;
+        } else {
+            if let Some(metrics) = self.account.as_mut().and_then(|acc| acc.metrics.as_mut()) {
+                metrics.gospels_english = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_account_metrics_gospel_spanish(&mut self) {
-        if let Some(account) = self.account.as_mut() {
-            if let Some(metrics) = account.metrics.as_mut() {
-                if let Some(gospels_spanish) = metrics.gospels_spanish.as_mut() {
-                    *gospels_spanish += 1;
-                } else {
-                    metrics.gospels_spanish = Some(1);
-                }
-                self.save();
+        if let Some(gospels_spanish) = self
+            .account
+            .as_mut()
+            .and_then(|acc| acc.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_spanish.as_mut())
+        {
+            *gospels_spanish += 1;
+        } else {
+            if let Some(metrics) = self.account.as_mut().and_then(|acc| acc.metrics.as_mut()) {
+                metrics.gospels_spanish = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_account_metrics_gospel_german(&mut self) {
-        if let Some(account) = self.account.as_mut() {
-            if let Some(metrics) = account.metrics.as_mut() {
-                if let Some(gospels_german) = metrics.gospels_german.as_mut() {
-                    *gospels_german += 1;
-                } else {
-                    metrics.gospels_german = Some(1);
-                }
-                self.save();
+        if let Some(gospels_german) = self
+            .account
+            .as_mut()
+            .and_then(|acc| acc.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_german.as_mut())
+        {
+            *gospels_german += 1;
+        } else {
+            if let Some(metrics) = self.account.as_mut().and_then(|acc| acc.metrics.as_mut()) {
+                metrics.gospels_german = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_account_metrics_scriptures(&mut self) {
-        let success = self
+        if let Some(scriptures) = self
             .account
             .as_mut()
             .and_then(|acc| acc.metrics.as_mut())
             .and_then(|mtr| mtr.scriptures.as_mut())
-            .map(|scriptures| {
-                *scriptures += 1;
-            })
-            .is_some();
-        if success {
+        {
+            *scriptures += 1;
             self.save();
         }
     }
 
     pub fn add_channel_metrics_gospel_english(&mut self) {
-        if let Some(channel) = self.channel.as_mut() {
-            if let Some(metrics) = channel.metrics.as_mut() {
-                if let Some(gospels_english) = metrics.gospels_english.as_mut() {
-                    *gospels_english += 1;
-                } else {
-                    metrics.gospels_english = Some(1);
-                }
-                self.save();
+        if let Some(gospels_english) = self
+            .channel
+            .as_mut()
+            .and_then(|chn| chn.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_english.as_mut())
+        {
+            *gospels_english += 1;
+        } else {
+            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
+                metrics.gospels_english = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_channel_metrics_gospel_spanish(&mut self) {
-        if let Some(channel) = self.channel.as_mut() {
-            if let Some(metrics) = channel.metrics.as_mut() {
-                if let Some(gospels_spanish) = metrics.gospels_spanish.as_mut() {
-                    *gospels_spanish += 1;
-                } else {
-                    metrics.gospels_spanish = Some(1);
-                }
-                self.save();
+        if let Some(gospels_spanish) = self
+            .channel
+            .as_mut()
+            .and_then(|chn| chn.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_spanish.as_mut())
+        {
+            *gospels_spanish += 1;
+        } else {
+            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
+                metrics.gospels_spanish = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_channel_metrics_gospel_german(&mut self) {
-        if let Some(channel) = self.channel.as_mut() {
-            if let Some(metrics) = channel.metrics.as_mut() {
-                if let Some(gospels_german) = metrics.gospels_german.as_mut() {
-                    *gospels_german += 1;
-                } else {
-                    metrics.gospels_german = Some(1);
-                }
-                self.save();
+        if let Some(gospels_german) = self
+            .channel
+            .as_mut()
+            .and_then(|chn| chn.metrics.as_mut())
+            .and_then(|mtr| mtr.gospels_german.as_mut())
+        {
+            *gospels_german += 1;
+        } else {
+            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
+                metrics.gospels_german = Some(1);
             }
         }
+        self.save();
     }
 
     pub fn add_channel_metrics_scriptures(&mut self) {
-        let success = self
+        if let Some(scriptures) = self
             .channel
             .as_mut()
             .and_then(|chn| chn.metrics.as_mut())
             .and_then(|mtr| mtr.scriptures.as_mut())
-            .map(|scriptures| {
-                *scriptures += 1;
-            })
-            .is_some();
-        if success {
+        {
+            *scriptures += 1;
             self.save();
         }
     }
