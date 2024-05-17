@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local, Utc};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;
 use std::path::Path;
 extern crate sanitize_filename;
@@ -10,14 +10,24 @@ fn deserialize_datetime_or_none<'de, D>(deserializer: D) -> Result<Option<DateTi
 where
     D: Deserializer<'de>,
 {
-    let helper = Option::<String>::deserialize(deserializer);
-    match helper {
-        Ok(Some(date_str)) => match DateTime::parse_from_rfc3339(&date_str) {
+    let helper = Option::<String>::deserialize(deserializer)?;
+    if let Some(date_str) = helper {
+        match DateTime::parse_from_rfc3339(&date_str) {
             Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
             Err(_) => Ok(None),
-        },
-        Ok(None) => Ok(None),
-        Err(_) => Ok(None),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+fn serialize_optional_string<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Some(v) => serializer.serialize_some(v),
+        None => serializer.serialize_none(),
     }
 }
 
@@ -31,16 +41,16 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Account {
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub username: Option<String>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub notes: Option<String>,
     #[serde(default)]
     created_date: Option<DateTime<Utc>>,
     #[serde(default)]
     modified_date: Option<DateTime<Utc>>,
-    #[serde(default)]
-    joined_from: Option<String>,
+    #[serde(default, serialize_with = "serialize_optional_string")]
+    pub joined_from: Option<String>,
     #[serde(default)]
     pub bible: Option<Bible>,
     #[serde(default)]
@@ -49,7 +59,7 @@ pub struct Account {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub notes: Option<String>,
     #[serde(default)]
     pub active: Option<bool>,
@@ -57,7 +67,7 @@ pub struct Channel {
     pub join_date: Option<DateTime<Utc>>,
     #[serde(default, deserialize_with = "deserialize_datetime_or_none")]
     pub part_date: Option<DateTime<Utc>>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub from_channel: Option<String>,
     #[serde(default)]
     pub bible: Option<Bible>,
@@ -75,15 +85,15 @@ fn default_command_prefix() -> Option<char> {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bible {
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub last_translation: Option<String>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub preferred_translation: Option<String>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub last_verse: Option<String>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub pending_text: Option<String>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_optional_string")]
     pub votd: Option<String>,
 }
 
@@ -105,16 +115,16 @@ impl Config {
         Config {
             account: Some(Account {
                 username: Some(username.to_string()),
-                notes: Some(String::new()),
+                notes: None,
                 created_date: Some(now),
                 modified_date: Some(now),
-                joined_from: Some(String::new()),
+                joined_from: None,
                 bible: Some(Bible {
-                    last_translation: Some(String::new()),
-                    last_verse: Some(String::new()),
-                    pending_text: Some(String::new()),
-                    votd: Some(String::new()),
-                    preferred_translation: Some(String::new()),
+                    last_translation: None,
+                    last_verse: None,
+                    pending_text: None,
+                    votd: None,
+                    preferred_translation: None,
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
@@ -124,17 +134,17 @@ impl Config {
                 }),
             }),
             channel: Some(Channel {
-                notes: Some(String::new()),
+                notes: None,
                 active: Some(false),
                 join_date: None,
                 part_date: None,
-                from_channel: Some(String::new()),
+                from_channel: None,
                 bible: Some(Bible {
-                    last_translation: Some(String::new()),
-                    last_verse: Some(String::new()),
-                    pending_text: Some(String::new()),
-                    votd: Some(String::new()),
-                    preferred_translation: Some(String::new()),
+                    last_translation: None,
+                    last_verse: None,
+                    pending_text: None,
+                    votd: None,
+                    preferred_translation: None,
                 }),
                 metrics: Some(Metrics {
                     scriptures: Some(0),
@@ -530,6 +540,60 @@ impl Config {
             .account
             .as_mut()
             .and_then(|acc| acc.metrics.as_mut())
+            .and_then(|mtr| mtr.scriptures.as_mut())
+            .map(|scriptures| {
+                *scriptures += 1;
+            })
+            .is_some();
+        if success {
+            self.save();
+        }
+    }
+
+    pub fn add_channel_metrics_gospel_english(&mut self) {
+        if let Some(channel) = self.channel.as_mut() {
+            if let Some(metrics) = channel.metrics.as_mut() {
+                if let Some(gospels_english) = metrics.gospels_english.as_mut() {
+                    *gospels_english += 1;
+                } else {
+                    metrics.gospels_english = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+
+    pub fn add_channel_metrics_gospel_spanish(&mut self) {
+        if let Some(channel) = self.channel.as_mut() {
+            if let Some(metrics) = channel.metrics.as_mut() {
+                if let Some(gospels_spanish) = metrics.gospels_spanish.as_mut() {
+                    *gospels_spanish += 1;
+                } else {
+                    metrics.gospels_spanish = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+
+    pub fn add_channel_metrics_gospel_german(&mut self) {
+        if let Some(channel) = self.channel.as_mut() {
+            if let Some(metrics) = channel.metrics.as_mut() {
+                if let Some(gospels_german) = metrics.gospels_german.as_mut() {
+                    *gospels_german += 1;
+                } else {
+                    metrics.gospels_german = Some(1);
+                }
+                self.save();
+            }
+        }
+    }
+
+    pub fn add_channel_metrics_scriptures(&mut self) {
+        let success = self
+            .channel
+            .as_mut()
+            .and_then(|chn| chn.metrics.as_mut())
             .and_then(|mtr| mtr.scriptures.as_mut())
             .map(|scriptures| {
                 *scriptures += 1;
