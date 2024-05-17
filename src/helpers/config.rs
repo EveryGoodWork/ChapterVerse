@@ -65,6 +65,8 @@ pub struct Channel {
     pub metrics: Option<Metrics>,
     #[serde(default = "default_command_prefix")]
     pub command_prefix: Option<char>,
+    #[serde(default)]
+    modified_date: Option<DateTime<Utc>>,
 }
 
 fn default_command_prefix() -> Option<char> {
@@ -141,6 +143,7 @@ impl Config {
                     gospels_german: Some(0),
                 }),
                 command_prefix: Some('!'),
+                modified_date: Some(now),
             }),
         }
     }
@@ -450,10 +453,24 @@ impl Config {
     pub fn set_command_prefix(&mut self, prefix: &char) {
         if let Some(channel) = &mut self.channel {
             channel.command_prefix = Some(*prefix);
-            if let Some(account) = &mut self.account {
-                account.modified_date = Some(Utc::now());
-            };
+            channel.modified_date = Some(Utc::now());
             self.save();
+        }
+    }
+
+    pub fn get_votd(&self) -> Option<String> {
+        self.channel
+            .as_ref()
+            .and_then(|c| c.bible.as_ref().and_then(|b| b.votd.clone()))
+    }
+
+    pub fn set_votd(&mut self, reference: Option<String>) {
+        if let Some(channel) = &mut self.channel {
+            if let Some(bible) = &mut channel.bible {
+                bible.votd = reference;
+                channel.modified_date = Some(Utc::now());
+                self.save();
+            }
         }
     }
 

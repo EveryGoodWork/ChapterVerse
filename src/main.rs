@@ -73,16 +73,11 @@ async fn main() {
                 if message_text_lowercase.starts_with(prefix) {
                     message_text_lowercase.replace_range(0..1, "!");
                     message.tags.push(Type::PossibleCommand);
-                }
-
-                if message_text_lowercase.contains("gospel message") {
+                } else if message_text_lowercase.contains("gospel message") {
                     message.tags.push(Type::Gospel);
-                }
-                if message_text_lowercase.contains(":") {
+                } else if message_text_lowercase.contains(":") {
                     message.tags.push(Type::PossibleScripture);
-                }
-
-                if message.tags.is_empty() {
+                } else {
                     message.tags.push(Type::None);
                 }
 
@@ -172,7 +167,7 @@ async fn main() {
                                     message.tags.push(Type::Command);
                                     message.tags.push(Type::ExcludeMetrics);
                                     Metrics::add_user(&METRICS, &display_name).await;
-                                    votd(&display_name, params).await
+                                    votd(&channel, &display_name, params).await
                                 }
                                 "!random" => {
                                     message.tags.push(Type::Command);
