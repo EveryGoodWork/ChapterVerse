@@ -77,6 +77,12 @@ pub async fn votd(channel: &str, display_name: &str, params: Vec<String>) -> Opt
                             config.set_last_verse(&verses.last().unwrap().reference);
                             config.add_account_metrics_scriptures();
 
+                            if !channel.eq_ignore_ascii_case(display_name) {
+                                Config::load(channel).add_channel_metrics_scriptures();
+                            } else {
+                                config.add_channel_metrics_scriptures();
+                            }
+
                             Some(response_output.truncated)
                         }
                     } else {

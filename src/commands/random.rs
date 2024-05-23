@@ -2,7 +2,7 @@ use crate::helpers::statics::{BIBLES, DEFAULT_TRANSLATION, REPLY_CHARACTER_LIMIT
 use crate::helpers::{response_builder::ResponseBuilder, Config};
 use bible::scripture::bible::Bible;
 
-pub async fn random(display_name: &str, params: Vec<String>) -> Option<String> {
+pub async fn random(channel: &str, display_name: &str, params: Vec<String>) -> Option<String> {
     let help_message =
         "Random Help: Retrieves a random verse from scripture using your preferred translation. Usage: !random";
     if params
@@ -29,6 +29,12 @@ pub async fn random(display_name: &str, params: Vec<String>) -> Option<String> {
                 ResponseBuilder::build(&random_scripture, adjusted_character_limit, &translation);
             config.set_last_verse(&random_scripture.last().unwrap().reference);
             config.add_account_metrics_scriptures();
+
+            if !channel.eq_ignore_ascii_case(display_name) {
+                Config::load(channel).add_channel_metrics_scriptures();
+            } else {
+                config.add_channel_metrics_scriptures();
+            }
 
             Some(response_output.truncated)
         }

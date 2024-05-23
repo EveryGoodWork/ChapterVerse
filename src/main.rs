@@ -92,7 +92,7 @@ async fn main() {
                             message.tags.push(Type::Gospel);
                             Metrics::add_user(&METRICS, &display_name).await;
                             Metrics::increment_gospels_english(&METRICS).await;
-                            reply = gospel(&display_name);
+                            reply = gospel(&channel, &display_name);
                         }
                         Type::PossibleCommand => {
                             let mut parts = message_text_lowercase.split_whitespace();
@@ -169,16 +169,22 @@ async fn main() {
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     votd(&channel, &display_name, params).await
                                 }
+                                "!channelinfo" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    channelinfo(channel, display_name, params).await
+                                }
                                 "!random" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
-                                    random(&display_name, params).await
+                                    random(channel, display_name, params).await
                                 }
                                 "!next" => {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
 
-                                    match next(&display_name, params).await {
+                                    match next(channel, display_name, params).await {
                                         Some(value) => {
                                             Metrics::increment_total_scriptures(&METRICS).await;
                                             message.tags.push(Type::Scripture);
@@ -194,7 +200,7 @@ async fn main() {
                                     message.tags.push(Type::Command);
                                     Metrics::add_user(&METRICS, &display_name).await;
 
-                                    match previous(&display_name, params).await {
+                                    match previous(channel, display_name, params).await {
                                         Some(value) => {
                                             Metrics::increment_total_scriptures(&METRICS).await;
                                             message.tags.push(Type::Scripture);
@@ -295,24 +301,23 @@ async fn main() {
                                         (None, _) => None,
                                     }
                                 }
-                                "!setvotd" => Some("Set the verse of the day.".to_string()),
                                 "!gospel" => {
                                     message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_english(&METRICS).await;
-                                    gospel(&display_name)
+                                    gospel(&channel, &display_name)
                                 }
                                 "!evangelio" => {
                                     message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_spanish(&METRICS).await;
-                                    evangelio(&display_name)
+                                    evangelio(&channel, &display_name)
                                 }
                                 "!evangelium" => {
                                     message.tags.push(Type::Gospel);
                                     Metrics::add_user(&METRICS, &display_name).await;
                                     Metrics::increment_gospels_german(&METRICS).await;
-                                    evangelium(&display_name)
+                                    evangelium(&channel, &display_name)
                                 }
                                 _ => {
                                     // TODO - might be a scripture so possibly check it against that function.
@@ -349,6 +354,13 @@ async fn main() {
                                         );
                                         config.set_last_verse(&verses.last().unwrap().reference);
                                         config.add_account_metrics_scriptures();
+
+                                        if !channel.eq_ignore_ascii_case(display_name) {
+                                            Config::load(channel).add_channel_metrics_scriptures();
+                                        } else {
+                                            config.add_channel_metrics_scriptures();
+                                        }
+
                                         Metrics::add_user(&METRICS, &display_name).await;
                                         Metrics::increment_total_scriptures(&METRICS).await;
                                         message.tags.push(Type::Scripture);

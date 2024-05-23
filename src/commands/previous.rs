@@ -2,7 +2,7 @@ use crate::helpers::statics::{BIBLES, REPLY_CHARACTER_LIMIT};
 use crate::helpers::{response_builder::ResponseBuilder, Config};
 use bible::scripture::bible::Bible;
 
-pub async fn previous(display_name: &str, params: Vec<String>) -> Option<String> {
+pub async fn previous(channel: &str, display_name: &str, params: Vec<String>) -> Option<String> {
     let help_message = "Previous Help: Responds with the previous verses in order, based on the last verse referenced, with the specified translation. You can optionally specify the number of verses you would like returned. Usage: !previous | !previous 2";
     if params
         .get(0)
@@ -39,6 +39,12 @@ pub async fn previous(display_name: &str, params: Vec<String>) -> Option<String>
                             );
                             config.set_last_verse(&verses.first().unwrap().reference);
                             config.add_account_metrics_scriptures();
+
+                            if !channel.eq_ignore_ascii_case(display_name) {
+                                Config::load(channel).add_channel_metrics_scriptures();
+                            } else {
+                                config.add_channel_metrics_scriptures();
+                            }
 
                             Some(response_output.truncated)
                         }

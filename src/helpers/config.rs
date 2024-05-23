@@ -109,6 +109,17 @@ pub struct Metrics {
     pub gospels_german: Option<u32>,
 }
 
+impl Default for Metrics {
+    fn default() -> Self {
+        Metrics {
+            scriptures: Some(0),
+            gospels_english: Some(0),
+            gospels_spanish: Some(0),
+            gospels_german: Some(0),
+        }
+    }
+}
+
 impl Config {
     fn default(username: &str) -> Self {
         let now = Utc::now();
@@ -206,7 +217,7 @@ impl Config {
     }
 
     pub fn add_note(&mut self, note: String) {
-        if let Some(account) = &mut self.account {
+        if let Some(account) = self.account.as_mut() {
             let current_time = Utc::now();
             let current_notes = account.notes.take().unwrap_or_default();
             account.notes = Some(format!(
@@ -221,13 +232,13 @@ impl Config {
     }
 
     pub fn join_channel(&mut self, from_channel: &str) {
-        if let Some(channel) = &mut self.channel {
+        if let Some(channel) = self.channel.as_mut() {
             channel.active = Some(true);
             channel.join_date = Some(Utc::now());
             channel.part_date = None;
             channel.from_channel = Some(from_channel.to_owned());
             self.add_note("!joinchannel".to_owned());
-            if let Some(account) = &mut self.account {
+            if let Some(account) = self.account.as_mut() {
                 account.modified_date = Some(Utc::now());
             }
             self.save()
@@ -235,11 +246,11 @@ impl Config {
     }
 
     pub fn leave_channel(&mut self) {
-        if let Some(channel) = &mut self.channel {
+        if let Some(channel) = self.channel.as_mut() {
             channel.part_date = Some(Utc::now());
             channel.active = Some(false);
             self.add_note("!leavechannel".to_owned());
-            if let Some(account) = &mut self.account {
+            if let Some(account) = self.account.as_mut() {
                 account.modified_date = Some(Utc::now());
             }
             self.save();
@@ -247,8 +258,8 @@ impl Config {
     }
 
     pub fn set_last_verse(&mut self, verse: &str) {
-        if let Some(account) = &mut self.account {
-            if let Some(bible) = &mut account.bible {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(bible) = account.bible.as_mut() {
                 bible.last_verse = Some(verse.to_string());
                 account.modified_date = Some(Utc::now());
                 self.save();
@@ -282,8 +293,8 @@ impl Config {
     }
 
     pub fn last_translation(&mut self, translation: &str) {
-        if let Some(account) = &mut self.account {
-            if let Some(bible) = &mut account.bible {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(bible) = account.bible.as_mut() {
                 bible.last_translation = Some(translation.to_string());
             }
             account.modified_date = Some(Utc::now());
@@ -292,8 +303,8 @@ impl Config {
     }
 
     pub fn preferred_translation(&mut self, translation: &str) {
-        if let Some(account) = &mut self.account {
-            if let Some(bible) = &mut account.bible {
+        if let Some(account) = self.account.as_mut() {
+            if let Some(bible) = account.bible.as_mut() {
                 bible.preferred_translation = Some(translation.to_string());
             }
             account.modified_date = Some(Utc::now());
@@ -464,7 +475,7 @@ impl Config {
     }
 
     pub fn set_command_prefix(&mut self, prefix: &char) {
-        if let Some(channel) = &mut self.channel {
+        if let Some(channel) = self.channel.as_mut() {
             channel.command_prefix = Some(*prefix);
             channel.modified_date = Some(Utc::now());
             self.save();
@@ -478,8 +489,8 @@ impl Config {
     }
 
     pub fn set_votd(&mut self, reference: Option<String>) {
-        if let Some(channel) = &mut self.channel {
-            if let Some(bible) = &mut channel.bible {
+        if let Some(channel) = self.channel.as_mut() {
+            if let Some(bible) = channel.bible.as_mut() {
                 bible.votd = reference;
                 channel.modified_date = Some(Utc::now());
                 self.save();
@@ -560,51 +571,27 @@ impl Config {
     }
 
     pub fn add_channel_metrics_gospel_english(&mut self) {
-        if let Some(gospels_english) = self
-            .channel
-            .as_mut()
-            .and_then(|chn| chn.metrics.as_mut())
-            .and_then(|mtr| mtr.gospels_english.as_mut())
-        {
-            *gospels_english += 1;
-        } else {
-            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
-                metrics.gospels_english = Some(1);
-            }
+        if let Some(channel) = self.channel.as_mut() {
+            let metrics = channel.metrics.get_or_insert_with(Default::default);
+            metrics.gospels_english = Some(metrics.gospels_english.unwrap_or(0) + 1);
+            self.save();
         }
-        self.save();
     }
 
     pub fn add_channel_metrics_gospel_spanish(&mut self) {
-        if let Some(gospels_spanish) = self
-            .channel
-            .as_mut()
-            .and_then(|chn| chn.metrics.as_mut())
-            .and_then(|mtr| mtr.gospels_spanish.as_mut())
-        {
-            *gospels_spanish += 1;
-        } else {
-            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
-                metrics.gospels_spanish = Some(1);
-            }
+        if let Some(channel) = self.channel.as_mut() {
+            let metrics = channel.metrics.get_or_insert_with(Default::default);
+            metrics.gospels_spanish = Some(metrics.gospels_spanish.unwrap_or(0) + 1);
+            self.save();
         }
-        self.save();
     }
 
     pub fn add_channel_metrics_gospel_german(&mut self) {
-        if let Some(gospels_german) = self
-            .channel
-            .as_mut()
-            .and_then(|chn| chn.metrics.as_mut())
-            .and_then(|mtr| mtr.gospels_german.as_mut())
-        {
-            *gospels_german += 1;
-        } else {
-            if let Some(metrics) = self.channel.as_mut().and_then(|chn| chn.metrics.as_mut()) {
-                metrics.gospels_german = Some(1);
-            }
+        if let Some(channel) = self.channel.as_mut() {
+            let metrics = channel.metrics.get_or_insert_with(Default::default);
+            metrics.gospels_german = Some(metrics.gospels_german.unwrap_or(0) + 1);
+            self.save();
         }
-        self.save();
     }
 
     pub fn add_channel_metrics_scriptures(&mut self) {
@@ -615,6 +602,12 @@ impl Config {
             .and_then(|mtr| mtr.scriptures.as_mut())
         {
             *scriptures += 1;
+            self.save();
+        }
+
+        if let Some(channel) = self.channel.as_mut() {
+            let metrics = channel.metrics.get_or_insert_with(Default::default);
+            metrics.scriptures = Some(metrics.scriptures.unwrap_or(0) + 1);
             self.save();
         }
     }
