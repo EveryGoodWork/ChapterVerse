@@ -12,6 +12,8 @@ pub enum Type {
     None,
     Ignore,
     ExcludeMetrics,
+    WHISPER,
+    PRIVMSG,
 }
 
 #[derive(Debug, Clone)]
@@ -82,29 +84,32 @@ impl MessageData {
 
         let meta_content_split = raw.split_once(":")?;
         let (meta, account_and_message) = meta_content_split;
-        let content_split = account_and_message.split_once("PRIVMSG #")?;
-        let (channel, text) = if raw.starts_with("PRIVMSG #") {
-            let parts: Vec<&str> = raw.splitn(3, ' ').collect();
-            if parts.len() == 3 {
-                (
-                    parts[1].trim_start_matches('#').to_string(),
-                    parts[2].trim_start_matches(':').to_string(),
-                )
-            } else {
-                return None;
-            }
-        } else {
+
+        let (channel, text, message_type) = if raw.contains("PRIVMSG #") {
+            let content_split = account_and_message.split_once("PRIVMSG #")?;
             let message = content_split.1.split_once(" :")?;
             (
-                message.0.to_string(),
+                message.0.trim().to_string(),
                 message.1.trim_end_matches("\r\n").to_string(),
+                Type::PRIVMSG,
             )
+        } else if raw.contains("WHISPER") {
+            let content_split = account_and_message.split_once("WHISPER")?;
+            let message = content_split.1.split_once(" :")?;
+            (
+                message.0.trim().to_string(),
+                message.1.trim_end_matches("\r\n").to_string(),
+                Type::WHISPER,
+            )
+        } else {
+            return None;
         };
 
         let mut message = MessageData {
             text,
             raw_message: raw.to_string(),
             channel,
+            tags: vec![message_type],
             ..Self::default()
         };
 
@@ -133,6 +138,7 @@ impl MessageData {
                 }
             }
         }
+
         // TODO! Pull these names from a configuration option.
         let accounts_to_ignore = ["EveryGoodWork", "ChapterVerse"];
         if let Some(display_name) = message.display_name {

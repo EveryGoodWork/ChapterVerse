@@ -14,15 +14,21 @@ pub struct Listener {
     pub channels_count: Arc<AtomicUsize>,
 }
 impl Listener {
-    pub fn new(message_tx: mpsc::UnboundedSender<MessageData>) -> Self {
-        let username = format!("justinfan{}", rand::thread_rng().gen_range(10000..=99999));
+    pub fn new(
+        message_tx: mpsc::UnboundedSender<MessageData>,
+        username: Option<String>,
+        oauth_token: Option<String>,
+    ) -> Self {
+        let username = username
+            .unwrap_or_else(|| format!("justinfan{}", rand::thread_rng().gen_range(10000..=99999)));
         Listener {
             message_tx: message_tx.clone(),
-            websocket: WebSocket::new(message_tx, username.clone(), None),
+            websocket: WebSocket::new(message_tx, username.clone(), oauth_token),
             username: username.into(),
             channels_count: Arc::new(AtomicUsize::new(0)),
         }
     }
+
     pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.websocket
             .clone()

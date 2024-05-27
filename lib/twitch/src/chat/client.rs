@@ -1,6 +1,6 @@
 use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
-use crate::common::message_data::MessageData;
+use crate::common::message_data::{MessageData, Type};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
 use futures_util::{pin_mut, SinkExt, StreamExt};
@@ -236,23 +236,36 @@ impl WebSocket {
     }
 
     pub async fn send_message(&self, message: MessageData) {
-        let twitch_message = match message.reply {
-            Some(ref reply) => match message.id {
-                Some(id) => format!(
-                    "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
-                    id, message.channel, reply
-                ),
-                None => format!("PRIVMSG #{} :{}\r\n", message.channel, reply),
-            },
-            None => format!("PRIVMSG #{} :{}\r\n", message.channel, message.text),
-        };
+        if message.tags.contains(&Type::PRIVMSG) {
+            let twitch_message = match message.reply {
+                Some(ref reply) => match message.id {
+                    Some(id) => format!(
+                        "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
+                        id, message.channel, reply
+                    ),
+                    None => format!("PRIVMSG #{} :{}\r\n", message.channel, reply),
+                },
+                None => format!("PRIVMSG #{} :{}\r\n", message.channel, message.text),
+            };
 
-        let mut message_bucket = self.message_bucket.write().await;
-        if message_bucket.len() < BUCKET_CAPACITY {
-            message_bucket.push_back(twitch_message.clone());
+            let mut message_bucket = self.message_bucket.write().await;
+            if message_bucket.len() < BUCKET_CAPACITY {
+                // println!("PRIVMSG Message: {}", twitch_message);
+                message_bucket.push_back(twitch_message.clone());
+                self.message_bucket_notifier.notify_one();
+            } else {
+                // println!("Bucket full, message throttled: {}", twitch_message);
+            }
+        } else if message.tags.contains(&Type::WHISPER) {
+            let whisper_message = format!(
+                "WHISPER {} :{}\r\n",
+                message.display_name.unwrap().to_lowercase(),
+                message.reply.unwrap()
+            );
+            // println!("Whisper Message: {}", whisper_message);
+            let mut message_bucket = self.message_bucket.write().await;
+            message_bucket.push_back(whisper_message.clone());
             self.message_bucket_notifier.notify_one();
-        } else {
-            // println!("Bucket full, message throttled: {}", twitch_message);
         }
     }
 
@@ -410,7 +423,16 @@ impl WebSocket {
                         {
                             if let Some(sender) = &self.message_tx {
                                 if let Err(e) = sender.send(parsed_message) {
-                                    eprintln!("Failed to send message to main.rs: {}", e);
+                                    eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
+                                }
+                            }
+                        }
+                    } else if text.contains("WHISPER") {
+                        if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+                        {
+                            if let Some(sender) = &self.message_tx {
+                                if let Err(e) = sender.send(parsed_message) {
+                                    eprintln!("WHISPER: Failed to send message to channel: {}", e);
                                 }
                             }
                         }
