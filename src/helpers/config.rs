@@ -46,9 +46,9 @@ pub struct Account {
     #[serde(default, serialize_with = "serialize_optional_string")]
     pub notes: Option<String>,
     #[serde(default)]
-    created_date: Option<DateTime<Utc>>,
+    pub created_date: Option<DateTime<Utc>>,
     #[serde(default)]
-    modified_date: Option<DateTime<Utc>>,
+    pub modified_date: Option<DateTime<Utc>>,
     #[serde(default, serialize_with = "serialize_optional_string")]
     pub joined_from: Option<String>,
     #[serde(default)]
@@ -76,7 +76,7 @@ pub struct Channel {
     #[serde(default = "default_command_prefix")]
     pub command_prefix: Option<char>,
     #[serde(default)]
-    modified_date: Option<DateTime<Utc>>,
+    pub modified_date: Option<DateTime<Utc>>,
 }
 
 fn default_command_prefix() -> Option<char> {
