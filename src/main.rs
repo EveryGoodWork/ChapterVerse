@@ -5,7 +5,7 @@ use helpers::response_builder::ResponseBuilder;
 use helpers::statics::{
     get_running_time, initialize_statics, lookup_command_prefix, update_command_prefix,
     CHANNELS_PER_LISTENER, DEFAULT_TRANSLATION, METRICS, REPLY_CHARACTER_LIMIT,
-    START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
+    START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT, TWITCH_OAUTH,
 };
 use helpers::Metrics;
 use tokio::sync::mpsc;
@@ -19,7 +19,6 @@ use twitch::chat::{client::WebSocketState, Listener, Replier};
 use twitch::common::message_data::{MessageData, Type};
 
 use helpers::config::Config;
-use helpers::env_variables::get_env_variable;
 use helpers::statics::{avaialble_bibles, find_bible};
 use helpers::statics::{BIBLES, CHANNELS_TO_JOIN};
 
@@ -50,13 +49,18 @@ async fn main() {
 
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
-    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
-    let replier = Arc::new(Replier::new(&TWITCH_ACCOUNT, &twitch_oauth));
 
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
     let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
+    let replier = Arc::new(Replier::new(
+        listener_transmitter.clone(),
+        &TWITCH_ACCOUNT,
+        &TWITCH_OAUTH,
+    ));
+
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-    let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
+    let replier_transmitter_clone =
+        Arc::new(Listener::new(replier_transmitter.clone(), None, None));
     let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
 
@@ -117,6 +121,8 @@ async fn main() {
                                         config.join_channel(&channel);
                                         let new_twitch_listener = Arc::new(Listener::new(
                                             listener_transmitter_clone.clone(),
+                                            None,
+                                            None,
                                         ));
                                         match new_twitch_listener.clone().connect().await {
                                             Ok(_) => {
@@ -391,28 +397,48 @@ async fn main() {
                             if !message.tags.contains(&Type::ExcludeMetrics) {
                                 metrics.message_response(duration);
                             }
-
                             message.reply = Some(format!("{} ({}ms)", reply_value, duration));
+
+                            println!("Tages: {:?}", message.tags);
                             if let Err(e) =
                                 { replier_transmitter_clone.message_tx.send(message.clone()) }
                             {
                                 eprintln!("Failed to send message: {}", e);
                             }
 
-                            let mut echo_message = message.clone();
-                            echo_message.channel = TWITCH_ACCOUNT.to_string();
-                            echo_message.reply = Some(format!(
-                                "http://twitch.tv/{} {} \"{}\" : {}",
-                                &channel,
-                                message.display_name.as_ref().map(|s| s).unwrap_or(&""),
-                                &message.text,
-                                message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
-                            ));
-                            echo_message.id = None;
-                            if let Err(e) =
-                                { replier_transmitter_clone.message_tx.send(echo_message) }
+                            if message.tags.contains(&Type::WHISPER)
+                                || !message
+                                    .channel
+                                    .to_ascii_lowercase()
+                                    .contains(&TWITCH_ACCOUNT.to_ascii_lowercase())
                             {
-                                eprintln!("Failed to send message: {}", e);
+                                let mut echo_message = message.clone();
+                                echo_message.tags.push(Type::PRIVMSG);
+                                echo_message.channel = TWITCH_ACCOUNT.to_string();
+                                if message.tags.contains(&Type::WHISPER) {
+                                    echo_message.reply = Some(format!(
+                                        "WHISPER TO: {} FROM: {} \"{}\" : {}",
+                                        &channel,
+                                        message.display_name.as_ref().map(|s| s).unwrap_or(&""),
+                                        &message.text,
+                                        message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
+                                    ));
+                                } else {
+                                    echo_message.reply = Some(format!(
+                                        "http://twitch.tv/{} {} \"{}\" : {}",
+                                        &channel,
+                                        message.display_name.as_ref().map(|s| s).unwrap_or(&""),
+                                        &message.text,
+                                        message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
+                                    ));
+                                }
+
+                                echo_message.id = None;
+                                if let Err(e) =
+                                    { replier_transmitter_clone.message_tx.send(echo_message) }
+                                {
+                                    eprintln!("Failed to send message: {}", e);
+                                }
                             }
                         }
                         None => {
@@ -432,7 +458,11 @@ async fn main() {
     // Spawn a task to manage connections, listeners, and reconnection
     tokio::spawn(async move {
         loop {
-            let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
+            let new_twitch_listener = Arc::new(Listener::new(
+                listener_transmitter_clone.clone(),
+                None,
+                None,
+            ));
             match new_twitch_listener.clone().connect().await {
                 Ok(_) => (),
                 Err(e) => {
@@ -442,8 +472,11 @@ async fn main() {
                 }
             }
             for chunk in CHANNELS_TO_JOIN.chunks(*CHANNELS_PER_LISTENER) {
-                let chunk_twitch_listener =
-                    Arc::new(Listener::new(listener_transmitter_clone.clone()));
+                let chunk_twitch_listener = Arc::new(Listener::new(
+                    listener_transmitter_clone.clone(),
+                    None,
+                    None,
+                ));
                 let listeners_lock = listeners_clone.lock();
                 listeners_lock.await.insert(
                     chunk_twitch_listener.username.to_string(),
@@ -478,9 +511,10 @@ async fn main() {
     });
 
     // Spawn a task for replying to messages.
+    let _ = Arc::clone(&replier).join_channel(&TWITCH_ACCOUNT).await;
+
     let replier_clone = Arc::clone(&replier);
     let loop_replier_clone = Arc::clone(&replier);
-
     tokio::spawn(async move {
         match replier_clone.clone().connect().await {
             Ok(_) => {

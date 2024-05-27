@@ -32,6 +32,7 @@ lazy_static! {
     pub static ref  DEFAULT_TRANSLATION: String = "KJV".to_string();
 
     pub static ref TWITCH_ACCOUNT: String = get_env_variable("TWITCHACCOUNT", "twitchusername");
+    pub static ref TWITCH_OAUTH: String = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
     pub static ref START_DATETIME_UTC: DateTime<Utc> = Utc::now();
     pub static ref START_DATETIME_UTC_STRING: String = START_DATETIME_UTC.format("%Y/%m/%d %H:%M UTC").to_string();
 

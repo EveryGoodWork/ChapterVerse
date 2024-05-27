@@ -8,10 +8,12 @@ pub struct Replier {
     websocket: Arc<WebSocket>,
 }
 impl Replier {
-    pub fn new(username: &str, oauth: &str) -> Self {
-        let (message_tx, _message_rx) = mpsc::unbounded_channel::<MessageData>();
+    pub fn new(
+        message_tx: mpsc::UnboundedSender<MessageData>,
+        username: &str,
+        oauth: &str,
+    ) -> Self {
         Replier {
-            //message_tx: message_tx.clone(),
             websocket: WebSocket::new(message_tx, username.to_string(), oauth.to_string()),
         }
     }
