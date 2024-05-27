@@ -95,7 +95,6 @@ pub async fn myinfo(display_name: &str, params: Vec<String>) -> Option<String> {
                 config.delete();
                 Some(DELETE_SUCCESS_MESSAGE.to_string())
             } else {
-                let config = Config::load(&display_name);
                 Some(UNRECOGNIZED_PARAMETER_MESSAGE.to_string())
             }
         },
