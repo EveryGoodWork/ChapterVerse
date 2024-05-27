@@ -46,7 +46,7 @@ impl ResponseBuilder {
         let scripture_full = format!("{} - {}", scriptures, scripture_reference);
 
         if scripture_full.len() > total_length {
-            let adjusted_length = total_length - scripture_reference.len() - 6; // Adjusting length for " ... - "
+            let adjusted_length = total_length - scripture_reference.len() - 7; // Adjusting length for " ... - "
             let break_point = scriptures
                 .char_indices()
                 .take_while(|&(idx, _)| idx <= adjusted_length)

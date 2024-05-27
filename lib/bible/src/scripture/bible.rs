@@ -1,3 +1,4 @@
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use std::collections::HashMap;
 
@@ -13,22 +14,56 @@ pub struct Verse {
 
 // #[derive(Default)]
 pub struct Bible {
-    index: HashMap<String, Verse>,
+    scriptures: HashMap<String, Verse>,
+    index: Vec<String>,
     regex: Regex,
 }
 
 impl Bible {
     pub fn new() -> Self {
         Self {
-            index: HashMap::new(),
+            scriptures: HashMap::new(),
+            index: Vec::new(),
             regex: Regex::new(r"(?i)(\d?\s?[a-z]+\s?\d?)\s(\d+):(\d+)(?:-(\d+))?")
                 .expect("Invalid regex pattern"),
         }
     }
 
     pub fn insert(&mut self, scripture: Verse) {
-        self.index.insert(scripture.reference.clone(), scripture);
+        self.scriptures
+            .insert(scripture.reference.clone(), scripture.clone());
+        self.index.push(scripture.reference.clone());
     }
+
+    pub fn get_next_scripture(&self, current_reference: &str, verses: usize) -> Vec<Verse> {
+        self.index
+            .iter()
+            .position(|r| r == current_reference)
+            .and_then(|pos| self.index.get(pos + 1..pos + 1 + verses))
+            .map_or(Vec::new(), |references| {
+                references
+                    .iter()
+                    .flat_map(|reference| self.get_scripture(reference))
+                    .collect()
+            })
+    }
+
+    pub fn get_previous_scripture(&self, current_reference: &str, verses: usize) -> Vec<Verse> {
+        self.index
+            .iter()
+            .position(|r| r == current_reference)
+            .and_then(|pos| {
+                let start_pos = if pos > verses { pos - verses } else { 0 };
+                self.index.get(start_pos..pos)
+            })
+            .map_or(Vec::new(), |references| {
+                references
+                    .iter()
+                    .flat_map(|reference| self.get_scripture(reference))
+                    .collect()
+            })
+    }
+
     pub fn get_scripture(&self, reference: &str) -> Vec<Verse> {
         let mut verses = Vec::new();
         if let Some(caps) = self.regex.captures(reference) {
@@ -45,7 +80,7 @@ impl Bible {
                 let book_name = Self::get_bible_book_name(book_abbr);
                 for verse_num in start_verse..=end_verse {
                     let formatted_ref = format!("{} {}:{}", book_name, chapter, verse_num);
-                    if let Some(verse) = self.index.get(&formatted_ref) {
+                    if let Some(verse) = self.scriptures.get(&formatted_ref) {
                         verses.push(verse.clone());
                     }
                 }
@@ -54,8 +89,16 @@ impl Bible {
         verses
     }
 
+    pub fn random_scripture(&self) -> Vec<Verse> {
+        self.index
+            .get(thread_rng().gen_range(0..self.index.len()))
+            .and_then(|reference| self.scriptures.get(reference))
+            .map(|verse| vec![verse.clone()])
+            .unwrap_or_else(Vec::new)
+    }
+
     pub fn len(&self) -> usize {
-        self.index.len()
+        self.scriptures.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -158,13 +201,13 @@ impl Bible {
             "2 timothy" | "2 tim" | "2 ti" | "ii tim" | "ii ti" | "2timothy" | "2tim" | "2ti"
             | "2nd timothy" | "second timothy" => "2 Timothy",
             "titus" | "tit" | "ti" => "Titus",
-            "Pphilemon" | "philem" | "phm" | "pm" => "Philemon",
+            "Philemon" | "philem" | "phm" | "pm" => "Philemon",
             "hebrews" | "heb" => "Hebrews",
             "james" | "jas" | "jm" => "James",
-            "2 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
+            "1 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
             | "1peter" | "1pet" | "1pe" | "1pt" | "1p" | "1st peter" | "first peter" => "1 Peter",
-            "2 pet" | "2 pe" | "2 pt" | "2 p" | "ii pet" | "ii pe" | "ii pt" | "2peter"
-            | "2pet" | "2pe" | "2pt" | "2p" | "2nd peter" | "second peter" => "2 Peter",
+            "2 peter" | "2 pet" | "2 pe" | "2 pt" | "2 p" | "ii pet" | "ii pe" | "ii pt"
+            | "2peter" | "2pet" | "2pe" | "2pt" | "2p" | "2nd peter" | "second peter" => "2 Peter",
             "1 john" | "1 jhn" | "1 jn" | "1 j" | "1john" | "1jhn" | "1joh" | "1jn" | "1jo"
             | "1j" | "i john" | "i jhn" | "i joh" | "i jn" | "i jo" | "1st john" | "first john" => {
                 "1 John"

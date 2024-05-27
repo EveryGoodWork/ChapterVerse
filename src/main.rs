@@ -1,6 +1,13 @@
 use bible::scripture::bible::Bible;
+use commands::*;
 use helpers::print_color::PrintCommand;
 use helpers::response_builder::ResponseBuilder;
+use helpers::statics::{
+    get_running_time, initialize_statics, lookup_command_prefix, update_command_prefix,
+    CHANNELS_PER_LISTENER, DEFAULT_TRANSLATION, METRICS, REPLY_CHARACTER_LIMIT,
+    START_DATETIME_LOCAL_STRING, START_DATETIME_UTC_STRING, TWITCH_ACCOUNT,
+};
+use helpers::Metrics;
 use tokio::sync::mpsc;
 
 use futures::future::pending;
@@ -8,28 +15,24 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use twitch::chat::client::WebSocketState;
-use twitch::chat::Listener;
-use twitch::chat::Replier;
+use twitch::chat::{client::WebSocketState, Listener, Replier};
 use twitch::common::message_data::{MessageData, Type};
 
 use helpers::config::Config;
 use helpers::env_variables::get_env_variable;
 use helpers::statics::{avaialble_bibles, find_bible};
-use helpers::statics::{BIBLES, CHANNELS_TO_JOIN, EVANGELIO, EVANGELIUM, GOSPEL};
+use helpers::statics::{BIBLES, CHANNELS_TO_JOIN};
 
+mod commands;
 mod helpers;
-
-const CHANNELS_PER_LISTENER: usize = 5;
-// TODO! Remove the debug deduction for the (7.7118ms) - 10 characters
-const REPLY_CHARACTER_LIMIT: usize = 500 - 10;
-// The only reason we use KJV as default is because it's free to use from copywrite restrictions.
-const DEFAULT_TRANSLATION: &str = "KJV";
 
 #[tokio::main]
 async fn main() {
+    initialize_statics();
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
+    PrintCommand::Issue.print_message("Start UTC", &START_DATETIME_UTC_STRING);
+    PrintCommand::Issue.print_message("Start Local", &START_DATETIME_LOCAL_STRING);
     PrintCommand::Info.print_message("What is the Gospel?", "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"");
     for (bible_name, bible_arc) in BIBLES.iter() {
         let bible: &Bible = &*bible_arc; // Dereference the Arc and immediately borrow the result
@@ -47,16 +50,12 @@ async fn main() {
 
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
+    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234567890abcdefghijklmnopqrst");
+    let replier = Arc::new(Replier::new(&TWITCH_ACCOUNT, &twitch_oauth));
 
     let (listener_transmitter, mut listener_reciever) = mpsc::unbounded_channel::<MessageData>();
     let (replier_transmitter, mut replier_receiver) = mpsc::unbounded_channel::<MessageData>();
-
     let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-
-    let twitch_account = get_env_variable("TWITCHACCOUNT", "twitchusername");
-    let twitch_oauth = get_env_variable("TWITCHOAUTH", "oauth:1234p1234p1234p1234p1234p1234p");
-    let replier = Arc::new(Replier::new(&twitch_account, &twitch_oauth));
-
     let replier_transmitter_clone = Arc::new(Listener::new(replier_transmitter.clone()));
     let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
@@ -64,18 +63,38 @@ async fn main() {
     // **Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(async move {
         while let Some(mut message) = listener_reciever.recv().await {
-            let mut reply: Option<String> = None;
-            let display_name = message.display_name.unwrap();
-            let message_text = message.text.to_string();
-            let tags = message.tags.clone();
+            // let tags = message.tags.clone();
 
-            if !tags.contains(&Type::Ignore) {
-                for tag in tags {
+            if !message.tags.contains(&Type::Ignore) {
+                let channel = &message.channel;
+                let prefix = lookup_command_prefix(channel);
+                let mut message_text_lowercase = message.text.to_lowercase();
+
+                if message_text_lowercase.starts_with(prefix) {
+                    message_text_lowercase.replace_range(0..1, "!");
+                    message.tags.push(Type::PossibleCommand);
+                } else if message_text_lowercase.contains("gospel message") {
+                    message.tags.push(Type::Gospel);
+                } else if message_text_lowercase.contains(":") {
+                    message.tags.push(Type::PossibleScripture);
+                } else {
+                    message.tags.push(Type::None);
+                }
+
+                let mut reply: Option<String> = None;
+                let display_name = message.display_name.unwrap();
+                let message_text = message.text.to_string();
+
+                for tag in message.tags.clone() {
                     match tag {
                         Type::None => (),
-                        Type::Gospel => reply = Some(GOSPEL.to_string()),
+                        Type::Gospel => {
+                            message.tags.push(Type::Gospel);
+                            Metrics::add_user(&METRICS, &display_name).await;
+                            Metrics::increment_gospels_english(&METRICS).await;
+                            reply = gospel(&channel, &display_name);
+                        }
                         Type::PossibleCommand => {
-                            let message_text_lowercase = &message_text.as_str().to_lowercase();
                             let mut parts = message_text_lowercase.split_whitespace();
                             let command = parts.next().unwrap_or_default().to_string();
                             let params: Vec<String> = parts.map(|s| s.to_string()).collect();
@@ -83,20 +102,25 @@ async fn main() {
                             reply = match command.as_str() {
                                 "!help" => {
                                     message.tags.push(Type::Command);
-                                    Some(format!("HELP: Available translations: {}. Lookup by typing: gen 1:1 or 2 tim 3:16-17 niv. Commands: !help, !joinchannel, !votd, !random, !next, !previous, !leavechannel, !myinfo, !channelinfo, !support, !status, !setcommandprefix, !setvotd, !gospel, !evangelio, !evangelium, gospel message.", avaialble_bibles()).to_string())
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    help(avaialble_bibles, &prefix)
                                 }
                                 "!joinchannel" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+
                                     let mut config = Config::load(&display_name);
 
+                                    Metrics::add_user_and_channel(&METRICS, &display_name).await;
+
                                     if !config.channel.as_ref().unwrap().active.unwrap_or(false) {
-                                        config.join_channel(message.channel.to_string());
+                                        config.join_channel(&channel);
                                         let new_twitch_listener = Arc::new(Listener::new(
                                             listener_transmitter_clone.clone(),
                                         ));
                                         match new_twitch_listener.clone().connect().await {
                                             Ok(_) => {
-                                                println!("Successfully connected. - Not Actually - it is in process");
+                                                // println!("Successfully connected. - Not Actually - it is in process");
                                                 let _ = new_twitch_listener
                                                     .clone()
                                                     .join_channel(display_name)
@@ -127,7 +151,7 @@ async fn main() {
                                             format!(
                                                 "Already joined {} from {} on : {}",
                                                 message.display_name.unwrap_or_default(),
-                                                config.from_channel(),
+                                                config.get_from_channel(),
                                                 config.join_date()
                                             )
                                             .to_string(),
@@ -136,40 +160,65 @@ async fn main() {
                                 }
                                 "!translation" => {
                                     message.tags.push(Type::Command);
-                                    let mut config = Config::load(&display_name);
-                                    let translation = params[0].to_uppercase();
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    translation(&display_name, params, avaialble_bibles).await
+                                }
+                                "!votd" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    votd(&channel, &display_name, params).await
+                                }
+                                "!channelinfo" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    channelinfo(channel, display_name, params).await
+                                }
+                                "!random" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    random(channel, display_name, params).await
+                                }
+                                "!next" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
 
-                                    if BIBLES.contains_key(&translation) {
-                                        config.preferred_translation(&translation);
-                                        config.add_note(
-                                            format!("!translation {}", &translation).to_owned(),
-                                        );
-                                        Some(
-                                            format!(
-                                                "Set perferred translation: {}.",
-                                                config.get_translation().unwrap()
-                                            )
-                                            .to_string(),
-                                        )
-                                    } else {
-                                        Some(
-                                            format!(
-                                                "Available translations: {}.",
-                                                avaialble_bibles()
-                                            )
-                                            .to_string(),
-                                        )
+                                    match next(channel, display_name, params).await {
+                                        Some(value) => {
+                                            Metrics::increment_total_scriptures(&METRICS).await;
+                                            message.tags.push(Type::Scripture);
+                                            Some(value)
+                                        }
+                                        None => {
+                                            message.tags.push(Type::NotScripture);
+                                            None
+                                        }
                                     }
                                 }
-                                "!votd" => Some("Display the verse of the day.".to_string()),
-                                "!random" => Some("Display a random verse.".to_string()),
-                                "!next" => Some("Go to the next item.".to_string()),
-                                "!previous" => Some("Go to the previous item.".to_string()),
+                                "!previous" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match previous(channel, display_name, params).await {
+                                        Some(value) => {
+                                            Metrics::increment_total_scriptures(&METRICS).await;
+                                            message.tags.push(Type::Scripture);
+                                            Some(value)
+                                        }
+                                        None => {
+                                            message.tags.push(Type::NotScripture);
+                                            None
+                                        }
+                                    }
+                                }
                                 "!leavechannel" => {
                                     message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
                                     let mut config = Config::load(&display_name);
                                     config.leave_channel();
-
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::remove_channel(&METRICS, &display_name).await;
                                     let listeners_lock = listeners_clone.lock();
                                     for (_key, listener) in listeners_lock.await.iter() {
                                         match listener.leave_channel(&display_name).await {
@@ -188,24 +237,90 @@ async fn main() {
                                         .to_string(),
                                     )
                                 }
-                                "!myinfo" => Some("Display user's information.".to_string()),
-                                "!support" => Some("Display support options.".to_string()),
-                                "!status" => Some("Display current status.".to_string()),
-                                "!setcommandprefix" => Some("Set the command prefix.".to_string()),
-                                "!setvotd" => Some("Set the verse of the day.".to_string()),
+                                "!myinfo" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match myinfo(&display_name, params).await {
+                                        Some(value) => Some(value),
+                                        None => None,
+                                    }
+                                }
+                                "!support" => {
+                                    message.tags.push(Type::Command);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    support()
+                                }
+                                "!status" => Some({
+                                    message.tags.push(Type::Command);
+                                    // ChapterVerse: v3.06 | Totals: 157 channels; 9,100 users; 122,613 scriptures; 12,692 Gospel proclamations! | Current Metrics: 22:0:10:35 uptime, 566,784 messages parsed (0.107ms avg), 4,587 responses (9.271ms avg)
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    let mut metrics = METRICS.write().await;
+                                    let metric_channels = metrics.channels.unwrap_or(0).to_string();
+                                    let metric_users = metrics.users.unwrap_or(0).to_string();
+                                    let metric_scriptures =
+                                        metrics.scriptures.unwrap_or(0).to_string();
+                                    let metric_gospels = (metrics.gospels_english.unwrap_or(0)
+                                        + metrics.gospels_spanish.unwrap_or(0)
+                                        + metrics.gospels_german.unwrap_or(0))
+                                    .to_string();
+                                    let running_time = get_running_time();
+                                    let (total_messages_parsed, average_parse_time) =
+                                        metrics.message_parsed_stats();
+                                    let (total_responses, average_response_time) =
+                                        metrics.message_response_stats();
+
+                                    format!(
+                                        "v{}, | Totals: {} channels, {} users, {} scriptures, {} Gospel Proclamations! | Daily Metrics: {} uptime, {} messages parsed ({}ms avg), {} responses ({}ms avg)",
+                                        env!("CARGO_PKG_VERSION"),
+                                        metric_channels,
+                                        metric_users,
+                                        metric_scriptures,
+                                        metric_gospels,
+                                        running_time,
+                                        total_messages_parsed,
+                                        average_parse_time,
+                                        total_responses,
+                                        average_response_time,
+                                    )
+                                }),
+                                "!commandprefix" => {
+                                    message.tags.push(Type::Command);
+                                    message.tags.push(Type::ExcludeMetrics);
+                                    Metrics::add_user(&METRICS, &display_name).await;
+
+                                    match commandprefix(&display_name, params).await {
+                                        (Some(message), prefix) => {
+                                            update_command_prefix(
+                                                &display_name.to_string(),
+                                                &prefix,
+                                            );
+                                            Some(message)
+                                        }
+                                        (None, _) => None,
+                                    }
+                                }
                                 "!gospel" => {
                                     message.tags.push(Type::Gospel);
-                                    Some(GOSPEL.to_string())
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_english(&METRICS).await;
+                                    gospel(&channel, &display_name)
                                 }
                                 "!evangelio" => {
                                     message.tags.push(Type::Gospel);
-                                    Some(EVANGELIO.to_string())
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_spanish(&METRICS).await;
+                                    evangelio(&channel, &display_name)
                                 }
                                 "!evangelium" => {
                                     message.tags.push(Type::Gospel);
-                                    Some(EVANGELIUM.to_string())
+                                    Metrics::add_user(&METRICS, &display_name).await;
+                                    Metrics::increment_gospels_german(&METRICS).await;
+                                    evangelium(&channel, &display_name)
                                 }
                                 _ => {
+                                    // TODO - might be a scripture so possibly check it against that function.
                                     message.tags.push(Type::NotCommand);
                                     None
                                 }
@@ -229,16 +344,27 @@ async fn main() {
                                         message.tags.push(Type::NotScripture);
                                         None
                                     } else {
-                                        //@MissionaryGamer + 1 extra space because the name is included in the text that can't exceed 500.
-                                        let adjusted_character_limit = REPLY_CHARACTER_LIMIT
+                                        //@TwitchAccountName + 1 extra space because the name is included in the text that can't exceed 500.
+                                        let adjusted_character_limit = *REPLY_CHARACTER_LIMIT
                                             - (message.display_name.unwrap().len() + 1);
-                                        config.last_verse(&verses.last().unwrap().reference);
                                         let response_output = ResponseBuilder::build(
                                             &verses,
                                             adjusted_character_limit,
-                                            &perferred_translation,
+                                            &bible_name_to_use,
                                         );
-                                        Some(response_output.truncated) // Assuming `to_string` converts ResponseOutput to String
+                                        config.set_last_verse(&verses.last().unwrap().reference);
+                                        config.add_account_metrics_scriptures();
+
+                                        if !channel.eq_ignore_ascii_case(display_name) {
+                                            Config::load(channel).add_channel_metrics_scriptures();
+                                        } else {
+                                            config.add_channel_metrics_scriptures();
+                                        }
+
+                                        Metrics::add_user(&METRICS, &display_name).await;
+                                        Metrics::increment_total_scriptures(&METRICS).await;
+                                        message.tags.push(Type::Scripture);
+                                        Some(response_output.truncated)
                                     }
                                 };
                                 PrintCommand::Info.print_message(
@@ -260,25 +386,40 @@ async fn main() {
                     }
                     match reply {
                         Some(ref reply_value) => {
-                            // TODO!  This is where I'll put the configuration update.
-                            println!("Tages: {:?}", message.tags);
-                            message.reply = Some(format!(
-                                "{} ({})",
-                                reply_value,
-                                message
-                                    .complete()
-                                    .ok()
-                                    .map_or_else(|| "".to_string(), |d| format!("{:?}", d))
-                            ));
+                            let mut metrics = METRICS.write().await;
+                            let duration = message.complete().unwrap_or_default();
+                            if !message.tags.contains(&Type::ExcludeMetrics) {
+                                metrics.message_response(duration);
+                            }
+
+                            message.reply = Some(format!("{} ({}ms)", reply_value, duration));
                             if let Err(e) =
-                                replier_transmitter_clone.message_tx.send(message.clone())
+                                { replier_transmitter_clone.message_tx.send(message.clone()) }
+                            {
+                                eprintln!("Failed to send message: {}", e);
+                            }
+
+                            let mut echo_message = message.clone();
+                            echo_message.channel = TWITCH_ACCOUNT.to_string();
+                            echo_message.reply = Some(format!(
+                                "http://twitch.tv/{} {} \"{}\" : {}",
+                                &channel,
+                                message.display_name.as_ref().map(|s| s).unwrap_or(&""),
+                                &message.text,
+                                message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
+                            ));
+                            echo_message.id = None;
+                            if let Err(e) =
+                                { replier_transmitter_clone.message_tx.send(echo_message) }
                             {
                                 eprintln!("Failed to send message: {}", e);
                             }
                         }
                         None => {
-                            println!("NONE: {:?}", reply);
-                            let _ = message.complete();
+                            // println!("Tages: {:?}", message.tags);
+                            let mut metrics = METRICS.write().await;
+                            let duration = message.complete().unwrap_or_default();
+                            metrics.message_parsed(duration);
                         }
                     }
                 }
@@ -292,38 +433,40 @@ async fn main() {
     tokio::spawn(async move {
         loop {
             let new_twitch_listener = Arc::new(Listener::new(listener_transmitter_clone.clone()));
-            // TODO! - this looks like I'm creating this for no reason now that I'm doing the loop.  This needs to be refactored.
             match new_twitch_listener.clone().connect().await {
-                Ok(_) => println!("Websocket connect OK..."),
+                Ok(_) => (),
                 Err(e) => {
                     eprintln!("Failed to connect: {:?}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     continue;
                 }
             }
-            for chunk in CHANNELS_TO_JOIN.chunks(CHANNELS_PER_LISTENER) {
-                let chuch_twitch_listener =
+            for chunk in CHANNELS_TO_JOIN.chunks(*CHANNELS_PER_LISTENER) {
+                let chunk_twitch_listener =
                     Arc::new(Listener::new(listener_transmitter_clone.clone()));
                 let listeners_lock = listeners_clone.lock();
                 listeners_lock.await.insert(
-                    chuch_twitch_listener.username.to_string(),
-                    chuch_twitch_listener.clone(),
+                    chunk_twitch_listener.username.to_string(),
+                    chunk_twitch_listener.clone(),
                 );
-                match chuch_twitch_listener.clone().connect().await {
-                    Ok(_) => println!("Successfully connected. - Not Actually - it is in process"),
+                match chunk_twitch_listener.clone().connect().await {
+                    Ok(_) => (),
                     Err(e) => {
                         eprintln!("Failed to connect: {:?}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                         continue;
                     }
                 }
-                tokio::spawn(async move {
-                    for channel in chunk {
-                        let twitch_listener_clone = Arc::clone(&chuch_twitch_listener); // Clone for each iteration
-                        let username = twitch_listener_clone.username.to_string();
-                        match twitch_listener_clone.join_channel(channel).await {
-                            Ok(_) => println!("{} Joined channel {}", username, channel),
-                            Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                tokio::spawn({
+                    async move {
+                        for channel in chunk {
+                            let twitch_listener_clone = Arc::clone(&chunk_twitch_listener);
+                            match twitch_listener_clone.join_channel(channel).await {
+                                Ok(_) => {
+                                    Metrics::add_channel(&METRICS, channel).await;
+                                }
+                                Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+                            }
                         }
                     }
                 });
@@ -337,21 +480,23 @@ async fn main() {
     // Spawn a task for replying to messages.
     let replier_clone = Arc::clone(&replier);
     let loop_replier_clone = Arc::clone(&replier);
+
     tokio::spawn(async move {
         match replier_clone.clone().connect().await {
             Ok(_) => {
-                println!("Successfully connected for Replying.");
+                // println!("Successfully connected for Replying.");
                 let _ = replier_clone
                     .clone()
-                    .send_message("chapterverse", "Jesus is Lord!")
+                    .send_message(&TWITCH_ACCOUNT, "Jesus is Lord!")
                     .await;
                 let _ = replier_clone
                     .clone()
                     .send_message(
-                        "chapterverse",
+                        &TWITCH_ACCOUNT,
                         format!(
-                            "ChapterVerse Version: {} - ONLINE",
-                            env!("CARGO_PKG_VERSION")
+                            "ChapterVerse Version: {} | ONLINE: {}",
+                            env!("CARGO_PKG_VERSION"),
+                            *START_DATETIME_LOCAL_STRING,
                         )
                         .as_str(),
                     )
@@ -364,7 +509,7 @@ async fn main() {
                 //         let message = format!("Debug Count: {} - Timestamp: {}", count, timestamp);
                 //         let _ = replier_clone
                 //             .clone()
-                //             .send_message("chapterverse", &message)
+                //             .send_message("TESTACCOUNT", &message)
                 //             .await;
                 //     }
                 // }

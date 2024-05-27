@@ -1,33 +1,51 @@
 use crate::helpers::config::Config;
 use crate::helpers::env_variables::get_env_variable;
+use crate::helpers::Metrics;
 use bible::csv_import::bible_import;
 use bible::scripture::bible::Bible;
+use chrono::{DateTime, Local, Utc};
+use dashmap::DashMap;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{env, fs};
+use tokio::sync::RwLock;
 
-pub fn find_bible(input: String, default: &String) -> String {
-    BIBLES_REGEX
-        .find(&input)
-        .map(|m| m.as_str().to_uppercase())
-        .unwrap_or_else(|| default.to_string())
+pub fn initialize_statics() {
+    // Access each lazy_static to trigger its initialization.
+    // let _ = &*TWITCH_ACCOUNT;
+    let _ = &*START_DATETIME_UTC;
+    let _ = &*START_DATETIME_LOCAL;
+    // let _ = &*BIBLES_REGEX;
+    // let _ = &*CHANNELS_TO_JOIN;
+    // let _ = &*METRICS;
+    // let _ = &*BIBLES;
 }
-
-pub fn avaialble_bibles() -> String {
-    BIBLES
-        .keys()
-        .map(|key| key.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
+// Important Note: lazy_static's are not loaded until the first time they are called.
 lazy_static! {
 
-pub static ref GOSPEL: String = "Gospel means good news! The bad news is we have all sinned and deserve the wrath to come. But Jesus the Messiah died for our sins, was buried, and then raised on the third day, according to the scriptures. He ascended into heaven and right now is seated at the Father's right hand. Jesus said, \"I am the way, and the truth, and the life. No one comes to the Father except through me. The time is fulfilled, and the kingdom of God is at hand; repent and believe in the gospel.\"".to_string();
-pub static ref EVANGELIO: String = "El evangelio significa buenas nuevas! La mala noticia es que todos hemos pecado y merecemos la ira venidera. Pero Jesus, el Mesias, murio por nuestros pecados, fue sepultado y resucito al tercer dia segun las Escrituras. Ascendio a los cielos y esta sentado a la diestra del Padre. Jesus dijo: \"Yo soy el camino, la verdad y la vida. Nadie viene al Padre sino por mi. El tiempo se ha cumplido, y el reino de Dios se ha acercado; arrepentios y creed en el evangelio\".".to_string();
-pub static ref EVANGELIUM: String = "Evangelium bedeutet Gute Nachricht! Die schlechte Nachricht ist, wir haben alle gesundigt und verdienen Gottes Zorn. Doch Jesus Christus starb fur unsere Sunden, wurde begraben und am dritten Tag auferweckt, nach der Bibel. Er fuhr in den Himmel auf und sitzt jetzt zur Rechten des Vaters. Jesus sagt: \"Ich bin der Weg, die Wahrheit und das Leben; niemand kommt zum Vater ausser durch mich.\" Die Zeit ist reif und das Reich Gottes ist nahe; kehrt um und glaubt an das Evangelium.".to_string();
+    pub static ref CHANNELS_PER_LISTENER: usize = 5;
+    // TODO! Remove the debug deduction for the (7.7118ms) - 10 characters
+    pub static ref  REPLY_CHARACTER_LIMIT: usize = 500 - 10;
+    // The only reason we use KJV as default is because it's free to use from copywrite restrictions.
+    pub static ref  DEFAULT_TRANSLATION: String = "KJV".to_string();
 
+    pub static ref TWITCH_ACCOUNT: String = get_env_variable("TWITCHACCOUNT", "twitchusername");
+    pub static ref START_DATETIME_UTC: DateTime<Utc> = Utc::now();
+    pub static ref START_DATETIME_UTC_STRING: String = START_DATETIME_UTC.format("%Y/%m/%d %H:%M UTC").to_string();
+
+    static ref COMMAND_PREFIXES: DashMap<String, char> = DashMap::new();
+
+    pub static ref START_DATETIME_LOCAL: DateTime<Local> = Local::now();
+    pub static ref START_DATETIME_LOCAL_STRING: String = {
+        let timezone_str = match START_DATETIME_LOCAL.format("%Z").to_string().as_str() {
+            "-07:00" => "PDT",
+            "-08:00" => "PST",
+            _ => "",
+        };
+        format!("{} {}", START_DATETIME_LOCAL.format("%Y/%m/%d %H:%M").to_string(), timezone_str)
+};
 
 pub static ref BIBLES_REGEX: Regex = {
     let bible_names = BIBLES.keys().map(|name| name.as_str()).collect::<Vec<&str>>().join("|");
@@ -37,6 +55,9 @@ pub static ref BIBLES_REGEX: Regex = {
 #[derive(Debug)]
 pub static ref CHANNELS_TO_JOIN: Vec<String> = Config::get_channels();
 
+pub static ref METRICS: Arc<RwLock<Metrics>> = Arc::new(RwLock::new(Metrics::default()));
+
+
 pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
 
             let import_bibles_path = get_env_variable("IMPORT_BIBLES_PATH", "bibles");
@@ -44,7 +65,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             let bibles_directory = match env::current_dir().map(|dir| dir.join(import_bibles_path)) {
                 Ok(dir) => dir,
                 Err(e) => {
-                    println!("Error getting current directory: {}", e);
+                    eprintln!("Error getting current directory: {}", e);
                     return Arc::new(HashMap::new());
                 }
             };
@@ -54,7 +75,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             let files = match fs::read_dir(bibles_directory) {
                 Ok(files) => files,
                 Err(e) => {
-                    println!("Error reading bibles directory: {}", e);
+                    eprintln!("Error reading bibles directory: {}", e);
                     return Arc::new(HashMap::new());
                 }
             };
@@ -63,7 +84,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
                 let entry = match file {
                     Ok(entry) => entry,
                     Err(e) => {
-                        println!("Error reading file in directory: {}", e);
+                        eprintln!("Error reading file in directory: {}", e);
                         continue; // Skip to the next iteration
                     }
                 };
@@ -84,7 +105,7 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
                             bibles.insert(file_stem, Arc::new(imported_bible));
                         }
                         Err(err) => {
-                            println!("Error running import for file '{}': {}", file_path, err);
+                            eprintln!("Error running import for file '{}': {}", file_path, err);
                         }
                     }
                 }
@@ -93,13 +114,43 @@ pub static ref BIBLES: Arc<HashMap<String, Arc<Bible>>> = {
             Arc::new(bibles)
         };
     }
-#[allow(unused)]
-fn get_bibles_names() -> String {
-    BIBLES.keys().cloned().collect::<Vec<_>>().join(", ")
+
+pub fn find_bible(input: String, default: &String) -> String {
+    BIBLES_REGEX
+        .find(&input)
+        .map(|m| m.as_str().to_uppercase())
+        .unwrap_or_else(|| default.to_string())
 }
-#[allow(unused)]
-fn get_specific_bible(bible_name: &str) -> Option<Arc<Bible>> {
-    let bibles = Arc::clone(&BIBLES); // Clone the Arc for thread-safe access
-    let lookup_name = bible_name.to_uppercase(); // Convert the lookup name to lowercase
-    bibles.get(&lookup_name).cloned()
+
+pub fn avaialble_bibles() -> String {
+    BIBLES
+        .keys()
+        .map(|key| key.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn get_running_time() -> String {
+    let duration = Utc::now().signed_duration_since(*START_DATETIME_UTC);
+    let days = duration.num_days();
+    let hours = duration.num_hours() % 24;
+    let minutes = duration.num_minutes() % 60;
+    let running_time = format!("{:02}d {}h {}m", days, hours, minutes);
+    running_time
+}
+
+pub fn lookup_command_prefix(channel: &str) -> char {
+    let channel_lower = channel.to_lowercase();
+    if let Some(prefix) = COMMAND_PREFIXES.get(&channel_lower) {
+        return *prefix;
+    }
+    let config = Config::load(&channel_lower);
+    let fetched_prefix = config.get_command_prefix();
+    COMMAND_PREFIXES.insert(channel_lower.clone(), fetched_prefix);
+    fetched_prefix
+}
+
+pub fn update_command_prefix(channel: &String, prefix: &char) {
+    let channel_lower = channel.to_lowercase();
+    COMMAND_PREFIXES.insert(channel_lower.clone(), *prefix);
 }

@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -11,6 +11,7 @@ pub enum Type {
     Gospel,
     None,
     Ignore,
+    ExcludeMetrics,
 }
 
 #[derive(Debug, Clone)]
@@ -69,27 +70,11 @@ impl MessageData {
         }
     }
 
-    // TODO!  Determine if this is the best place to do this, as technically I do this again in main.rs
-    pub fn determine_message_types(text: &str) -> Vec<Type> {
-        let mut types = Vec::new();
-        let text_to_lowercase = text.to_lowercase();
-
-        if text_to_lowercase.starts_with("!") {
-            types.push(Type::PossibleCommand);
-        } else if text.to_lowercase().contains("gospel message") {
-            types.push(Type::Gospel);
-        } else if text_to_lowercase.contains(":") {
-            types.push(Type::PossibleScripture);
-        } else if types.is_empty() {
-            types.push(Type::None);
-        }
-        types
-    }
-
-    pub fn complete(&self) -> Result<Duration, &'static str> {
+    pub fn complete(&self) -> Result<u64, &'static str> {
         SystemTime::now()
             .duration_since(self.received)
             .map_err(|_| "Time went backwards")
+            .map(|dur| dur.as_millis() as u64)
     }
 
     pub fn new(raw: &str) -> Option<Self> {
@@ -116,12 +101,10 @@ impl MessageData {
             )
         };
 
-        let text_for_types = text.clone();
         let mut message = MessageData {
             text,
             raw_message: raw.to_string(),
             channel,
-            tags: Self::determine_message_types(&text_for_types),
             ..Self::default()
         };
 

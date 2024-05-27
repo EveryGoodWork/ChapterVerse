@@ -7,7 +7,6 @@ use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time;
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::connect_async;
@@ -150,22 +149,22 @@ impl WebSocket {
         loop {
             match self.get_state() {
                 WebSocketState::NotConnected | WebSocketState::Disconnected => {
-                    println!("Attempting to connect...");
+                    // println!("Attempting to connect...");
                     self.set_state(WebSocketState::Connecting).await;
                 }
                 WebSocketState::Connecting | WebSocketState::Connected => {
-                    println!("Already connecting or connected, no action taken.");
+                    // println!("Already connecting or connected, no action taken.");
                     return Ok(());
                 }
                 WebSocketState::Failed => {
-                    println!("Previous attempt failed, trying again...");
+                    eprintln!("Previous attempt failed, trying again...");
                 }
             }
             let url = "ws://irc-ws.chat.twitch.tv:80";
             match connect_async(url).await {
                 Ok((ws_stream, _)) => {
                     self.handle_connection_success(ws_stream).await;
-                    println!("---WebSocket Connected and ready.");
+                    // println!("---WebSocket Connected and ready.");
                     break;
                 }
                 Err(e) => {
@@ -238,12 +237,13 @@ impl WebSocket {
 
     pub async fn send_message(&self, message: MessageData) {
         let twitch_message = match message.reply {
-            Some(ref reply) => format!(
-                "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
-                message.id.unwrap(),
-                message.channel,
-                reply
-            ),
+            Some(ref reply) => match message.id {
+                Some(id) => format!(
+                    "@reply-parent-msg-id={} PRIVMSG #{} :{}\r\n",
+                    id, message.channel, reply
+                ),
+                None => format!("PRIVMSG #{} :{}\r\n", message.channel, reply),
+            },
             None => format!("PRIVMSG #{} :{}\r\n", message.channel, message.text),
         };
 
@@ -252,7 +252,7 @@ impl WebSocket {
             message_bucket.push_back(twitch_message.clone());
             self.message_bucket_notifier.notify_one();
         } else {
-            println!("Bucket full, message throttled: {}", twitch_message);
+            // println!("Bucket full, message throttled: {}", twitch_message);
         }
     }
 
@@ -337,9 +337,9 @@ impl WebSocket {
                 };
                 channels.push_back(new_channel);
             } else {
-                println!("Channel already exists: {}", channel_name);
+                // println!("Channel already exists: {}", channel_name);
             }
-            println!("join_channel channels queue size: {}", channels.len());
+            // println!("join_channel channels queue size: {}", channels.len());
         }
         self.join_pending_channels().await;
     }
@@ -350,12 +350,12 @@ impl WebSocket {
     }
 
     pub async fn join_pending_channels(self: Arc<Self>) {
-        println!("WebSocketState: {:?}", self.get_state());
+        // println!("WebSocketState: {:?}", self.get_state());
 
         if self.get_state() == WebSocketState::Connected {
             self.process_channel_joining().await;
         } else {
-            println!("WebSocket is not connected. Waiting to join channels....");
+            // println!("WebSocket is not connected. Waiting to join channels....");
             //TODO!  Reflect on this later and see if it's still necessary for this to happen.
             tokio::spawn({
                 let ws_clone = Arc::clone(&self);
@@ -375,17 +375,17 @@ impl WebSocket {
 
     async fn process_channel_joining(&self) {
         let mut channels = self.channels.lock().await;
-        println!("Current channels queue size: {}", channels.len());
+        // println!("Current channels queue size: {}", channels.len());
         for channel in channels.iter_mut() {
             if channel.state == ChannelState::NotConnected {
                 self.join_rate_limiter.wait_and_record().await;
                 self.send_command(&format!("JOIN #{}", channel.name.to_lowercase()))
                     .await;
-                println!(
-                    "Joining channel: {} {:?}",
-                    channel.name,
-                    time::SystemTime::now()
-                );
+                // println!(
+                //     "Joining channel: {} {:?}",
+                //     channel.name,
+                //     time::SystemTime::now()
+                // );
                 channel.state = ChannelState::Connected;
             } else {
                 // println!("Already joined channel: {}", channel.name);
@@ -415,7 +415,7 @@ impl WebSocket {
                             }
                         }
                     } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
-                        println!("{} {:?}", ":Welcome, GLHF! ", self.username);
+                        // println!("{} {:?}", ":Welcome, GLHF! ", self.username);
                         self.set_state(WebSocketState::Connected).await;
                     }
                 }
