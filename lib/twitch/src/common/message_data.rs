@@ -140,7 +140,7 @@ impl MessageData {
         }
 
         // TODO! Pull these names from a configuration option.
-        let accounts_to_ignore = ["EveryGoodWork", "ChapterVerse"];
+        let accounts_to_ignore = ["EveryGoodWork", "ChapterVerse", "NightBot"];
         if let Some(display_name) = message.display_name {
             if accounts_to_ignore.iter().any(|&name| name == display_name) {
                 message.tags.push(Type::Ignore);

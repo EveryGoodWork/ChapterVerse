@@ -22,7 +22,7 @@ pub async fn myinfo(display_name: &str, params: Vec<String>) -> Option<String> {
                 .and_then(|acc| {
                     acc.bible
                         .as_ref()
-                        .and_then(|bbl| bbl.last_translation.as_ref())
+                        .and_then(|bbl| bbl.preferred_translation.as_ref())
                 })
                 .unwrap_or(&binding);
             let date_added = config
