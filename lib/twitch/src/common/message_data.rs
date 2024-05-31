@@ -139,8 +139,29 @@ impl MessageData {
             }
         }
 
-        // TODO! Pull these names from a configuration option.
-        let accounts_to_ignore = ["EveryGoodWork", "ChapterVerse", "NightBot"];
+        // TODO! Pull these names from a configuration option.  These are BOTS to ignore so it doesn't respond to bot messages.
+        let accounts_to_ignore = [
+            "EveryGoodWork",
+            "ChapterVerse",
+            "NightBot",
+            "StreamElements",
+            "Moobot",
+            "Fossabot",
+            "Wizebot",
+            "Streamlabs",
+            "Coebot",
+            "AnkhBot",
+            "Vivbot",
+            "Stay_Hydrated_Bot",
+            "CommanderRoot",
+            "DeepBot",
+            "ScorpBot",
+            "PhantomBot",
+            "Botisimo",
+            "Muxy",
+            "SeryBot",
+            "MoveBot",
+        ];
         if let Some(display_name) = message.display_name {
             if accounts_to_ignore.iter().any(|&name| name == display_name) {
                 message.tags.push(Type::Ignore);
