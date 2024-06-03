@@ -161,6 +161,7 @@ impl MessageData {
             "Muxy",
             "SeryBot",
             "MoveBot",
+            "Rainmaker",
         ];
         if let Some(display_name) = message.display_name {
             if accounts_to_ignore
