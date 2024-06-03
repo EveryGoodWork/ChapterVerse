@@ -14,6 +14,9 @@ Cargo.lock
 *.pdb
 .vscode/launch.json
 
+# RustRover configuration files.
+.idea/
+
 # Exclude environment variables file
 .env
 
