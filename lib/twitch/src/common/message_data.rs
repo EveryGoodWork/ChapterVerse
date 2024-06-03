@@ -163,11 +163,15 @@ impl MessageData {
             "MoveBot",
         ];
         if let Some(display_name) = message.display_name {
-            if accounts_to_ignore.iter().any(|&name| name == display_name) {
+            if accounts_to_ignore
+                .iter()
+                .any(|&name| name.eq_ignore_ascii_case(display_name))
+            {
                 message.tags.push(Type::Ignore);
                 return Some(message);
             }
         }
+
         Some(message)
     }
 }
