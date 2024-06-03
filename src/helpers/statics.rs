@@ -26,9 +26,8 @@ pub fn initialize_statics() {
 lazy_static! {
 
     pub static ref CHANNELS_PER_LISTENER: usize = 5;
-    // TODO! Remove the debug deduction for the (7.7118ms) - 10 characters
-    pub static ref  REPLY_CHARACTER_LIMIT: usize = 500 - 10;
-    // The only reason we use KJV as default is because it's free to use from copywrite restrictions.
+    pub static ref  REPLY_CHARACTER_LIMIT: usize = 500;
+    // The only reason we use KJV as default is that it's free to use from copyright restrictions.
     pub static ref  DEFAULT_TRANSLATION: String = "KJV".to_string();
 
     pub static ref TWITCH_ACCOUNT: String = get_env_variable("TWITCHACCOUNT", "twitchusername");
