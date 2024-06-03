@@ -12,22 +12,23 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+.vscode/launch.json
+
+# RustRover configuration files.
+.idea/
 
 # Exclude environment variables file
 .env
 
-.vscode/launch.json
+# Ignore all TOML files except Cargo.toml
+*.toml
+!Cargo.toml
+
+bibles/
+!bibles/KJV.ESV
+!bibles/AMP.ESV
+!bibles/WEB.ESV
+!bibles/ASV.ESV
 
 channels/
-
-bibles/LSB.csv
-
-bibles/LSB.xml
-
-bibles/NKJV.csv
-
 metrics/
-
-verse_of_the_day.html
-
-votd_config.toml

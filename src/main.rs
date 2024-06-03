@@ -397,9 +397,9 @@ async fn main() {
                             if !message.tags.contains(&Type::ExcludeMetrics) {
                                 metrics.message_response(duration);
                             }
-                            message.reply = Some(format!("{} ({}ms)", reply_value, duration));
+                            message.reply = Some(format!("{}", reply_value));
 
-                            println!("Tages: {:?}", message.tags);
+                            // println!("Tages: {:?}", message.tags);
                             if let Err(e) =
                                 { replier_transmitter_clone.message_tx.send(message.clone()) }
                             {
@@ -425,11 +425,12 @@ async fn main() {
                                     ));
                                 } else {
                                     echo_message.reply = Some(format!(
-                                        "http://twitch.tv/{} {} \"{}\" : {}",
+                                        "http://twitch.tv/{} {} \"{}\" : {} ({}ms)",
                                         &channel,
                                         message.display_name.as_ref().map(|s| s).unwrap_or(&""),
                                         &message.text,
-                                        message.reply.as_ref().map(|s| s.as_str()).unwrap_or("")
+                                        message.reply.as_ref().map(|s| s.as_str()).unwrap_or(""),
+                                        &duration
                                     ));
                                 }
 
