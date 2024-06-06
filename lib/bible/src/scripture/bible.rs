@@ -202,7 +202,7 @@ impl Bible {
             "2 timothy" | "2 tim" | "2 ti" | "ii tim" | "ii ti" | "2timothy" | "2tim" | "2ti"
             | "2nd timothy" | "second timothy" => "2 Timothy",
             "titus" | "tit" | "ti" => "Titus",
-            "Philemon" | "philem" | "phm" | "pm" => "Philemon",
+            "philemon" | "philem" | "phm" | "pm" => "Philemon",
             "hebrews" | "heb" => "Hebrews",
             "james" | "jas" | "jm" => "James",
             "1 peter" | "1 pet" | "1 pe" | "1 pt" | "1 p" | "i pet" | "i pe" | "i pt"
@@ -220,7 +220,7 @@ impl Bible {
             | "3j" | "iii john" | "iii jhn" | "iii joh" | "iii jn" | "iii jo" | "3rd john"
             | "third john" => "3 John",
             "jude" | "jud" | "jd" => "Jude",
-            "Revelation" | "rev" | "re" => "Revelation",
+            "revelation" | "rev" | "re" => "Revelation",
             // Default case
             _ => "Unknown Book",
         }
