@@ -1,5 +1,5 @@
 use super::client::{WebSocket, WebSocketState};
-use crate::common::message_data::MessageData;
+use crate::common::message_data::{MessageData, Type};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -45,6 +45,7 @@ impl Replier {
         let message_data = MessageData {
             channel: channel_name.to_string(),
             text: message_text.chars().take(500).collect(),
+            tags: vec![Type::PRIVMSG],
             ..MessageData::default()
         };
         self.websocket.send_message(message_data).await;

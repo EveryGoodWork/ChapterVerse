@@ -1,7 +1,6 @@
 use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::{MessageData, Type};
-use async_trait::async_trait;
 use futures_util::stream::SplitSink;
 use futures_util::{pin_mut, SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
@@ -215,7 +214,7 @@ impl WebSocket {
         tokio::spawn(async move {
             let mut twitch_stream_option = listener_clone.twitch_stream.lock().await;
             if let Some(twitch_stream) = twitch_stream_option.as_mut() {
-                listener_clone.listen_for_messages(twitch_stream).await;
+                listener_clone.clone().listen_for_messages(twitch_stream).await;
             }
         });
         if let Some(oauth) = &self.oauth_token {
@@ -407,38 +406,44 @@ impl WebSocket {
     }
 
     pub async fn listen_for_messages(
-        &self,
+        self: Arc<Self>,
         read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
     ) {
         pin_mut!(read);
+        let self_clone = Arc::clone(&self);
         while let Some(message) = read.next().await {
             // println!("*Message RAW: {:?}", message);
             match message {
-                Ok(Message::Text(text)) => {
-                    if text.starts_with("PING") {
-                        //println!("DEBUG Received PING, sending: PONG");
-                        self.send_command(&text.replace("PING", "PONG")).await;
-                    } else if text.contains("PRIVMSG #") {
-                        if let Some(parsed_message) = common::message_data::MessageData::new(&text)
-                        {
-                            if let Some(sender) = &self.message_tx {
-                                if let Err(e) = sender.send(parsed_message) {
-                                    eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
+                Ok(Message::Text(ref text)) => {
+                    if message.is_ok() {
+                        if text.starts_with("PING") {
+                            //println!("DEBUG Received PING, sending: PONG");
+                            self_clone.send_command(&text.replace("PING", "PONG")).await;
+                        } else if text.contains("PRIVMSG #") {
+                            if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+                            {
+                                if let Some(sender) = &self_clone.message_tx {
+                                    if let Err(e) = sender.send(parsed_message) {
+                                        eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
+                                    }
                                 }
                             }
-                        }
-                    } else if text.contains("WHISPER") {
-                        if let Some(parsed_message) = common::message_data::MessageData::new(&text)
-                        {
-                            if let Some(sender) = &self.message_tx {
-                                if let Err(e) = sender.send(parsed_message) {
-                                    eprintln!("WHISPER: Failed to send message to channel: {}", e);
+                        } else if text.contains("WHISPER") {
+                            if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+                            {
+                                if let Some(sender) = &self_clone.message_tx {
+                                    if let Err(e) = sender.send(parsed_message) {
+                                        eprintln!("WHISPER: Failed to send message to channel: {}", e);
+                                    }
                                 }
                             }
+                        } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
+                            // println!("{} {:?}", ":Welcome, GLHF! ", self.username);
+                            self_clone.set_state(WebSocketState::Connected).await;
                         }
-                    } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
-                        // println!("{} {:?}", ":Welcome, GLHF! ", self.username);
-                        self.set_state(WebSocketState::Connected).await;
+                    }
+                    else {
+                        eprintln!("Message ERROR: {:?}", message);
                     }
                 }
                 Err(e) => {
@@ -446,7 +451,9 @@ impl WebSocket {
                     if let tokio_tungstenite::tungstenite::Error::Io(io_error) = &e {
                         if io_error.kind() == std::io::ErrorKind::ConnectionReset {
                             eprintln!("Connection was reset by the remote host.");
-                            self.set_state(WebSocketState::Disconnected).await;
+                            self_clone.clone().set_state(WebSocketState::Disconnected).await;
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            // self_clone.clone().connect().await;
                         }
                     }
                 }
@@ -454,9 +461,4 @@ impl WebSocket {
             }
         }
     }
-}
-
-#[async_trait]
-pub trait Client {
-    async fn connect(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
