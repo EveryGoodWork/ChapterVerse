@@ -359,7 +359,7 @@ impl Config {
                             }
                         }
                     } else {
-                        eprintln!("Skipped non-TOML file or directory: {:?}", path);
+                        // eprintln!("Skipped non-TOML file or directory: {:?}", path);
                         None
                     }
                 })

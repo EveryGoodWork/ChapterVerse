@@ -2,7 +2,7 @@ use crate::common;
 use crate::common::channel_data::{Channel, ChannelState};
 use crate::common::message_data::{MessageData, Type};
 use futures_util::stream::SplitSink;
-use futures_util::{pin_mut, SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -93,11 +93,9 @@ pub struct WebSocket {
     pub write: Arc<Mutex<Option<mpsc::UnboundedSender<Message>>>>,
     channels: Arc<Mutex<VecDeque<Channel>>>,
     message_tx: Option<mpsc::UnboundedSender<MessageData>>,
-    twitch_sink:
+    twitch_stream:
         Arc<Mutex<Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, WebSocketMessage>>>>,
-    twitch_stream: Arc<Mutex<Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>>,
     twitch_channel_transmitter: Arc<Mutex<Option<UnboundedSender<WebSocketMessage>>>>,
-    twitch_channel_reciever: Arc<Mutex<Option<UnboundedReceiver<WebSocketMessage>>>>,
     message_bucket: Arc<RwLock<VecDeque<String>>>,
     message_bucket_notifier: Arc<Notify>,
     channel_timeouts: Arc<RwLock<HashMap<String, Instant>>>,
@@ -116,11 +114,8 @@ impl WebSocket {
             message_tx: Some(message_tx),
             websocket_state: Arc::new(AtomicUsize::new(WebSocketState::NotConnected as usize)),
             write: Arc::new(Mutex::new(None)),
-            twitch_sink: Arc::new(Mutex::new(None)),
             twitch_stream: Arc::new(Mutex::new(None)),
             twitch_channel_transmitter: Arc::new(Mutex::new(None)),
-            twitch_channel_reciever: Arc::new(Mutex::new(None)),
-
             channels: Arc::new(Mutex::new(VecDeque::new())),
             message_bucket: Arc::new(RwLock::new(VecDeque::new())),
             message_bucket_notifier: Arc::new(Notify::new()),
@@ -175,62 +170,87 @@ impl WebSocket {
         }
         Ok(())
     }
+    async fn handle_connection_success(self: Arc<Self>, ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>) {
+        let (mut split_sink, split_stream) = ws_stream.split();
+        let (twitch_transmitter, twitch_receiver) = mpsc::unbounded_channel();
 
-    async fn handle_connection_success(
-        self: Arc<Self>,
-        ws_stream: tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    ) {
-        let (split_sink, split_stream) = ws_stream.split();
-        let (twitch_transmitter, twitch_reciever) = mpsc::unbounded_channel();
+        // Spawn the task for listening to messages
+        tokio::spawn(Self::handle_twitch_receive(self.clone(), split_stream));
 
-        *self.twitch_sink.lock().await = Some(split_sink);
-        *self.twitch_stream.lock().await = Some(split_stream);
-        *self.twitch_channel_transmitter.lock().await = Some(twitch_transmitter.clone());
-        *self.twitch_channel_reciever.lock().await = Some(twitch_reciever);
-        self.clone().start_leaky_bucket_handler();
-
-        //Start the Channel for sending messages to twitch.
-        tokio::spawn({
-            let self_clone = self.clone();
-            async move {
-                while let Some(twitch_channel_read) =
-                    self_clone.twitch_channel_reciever.lock().await.as_mut()
-                {
-                    while let Some(message) = twitch_channel_read.recv().await {
-                        let mut sink = self_clone.twitch_sink.lock().await;
-                        if let Some(sink) = sink.as_mut() {
-                            if let Err(e) = sink.send(message).await {
-                                eprintln!("Error sending message: {:?}", e);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        let listener_clone = self.clone();
-        tokio::spawn(async move {
-            let mut twitch_stream_option = listener_clone.twitch_stream.lock().await;
-            if let Some(twitch_stream) = twitch_stream_option.as_mut() {
-                listener_clone.clone().listen_for_messages(twitch_stream).await;
-            }
-        });
         if let Some(oauth) = &self.oauth_token {
-            if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
-                twitch_channel_write
-                    .send(format!("PASS {}", oauth).into())
-                    .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
+            if let Err(e) = split_sink.send(format!("PASS {}", oauth).into()).await {
+                eprintln!("Error sending message: {:?}", e);
+                self.set_state(WebSocketState::Disconnected).await;
             }
         }
-        if let Some(twitch_channel_write) = &*self.twitch_channel_transmitter.lock().await {
-            twitch_channel_write
-                .send(format!("NICK {}", self.username).into())
-                .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
-            twitch_channel_write
-                .send("CAP REQ :twitch.tv/tags twitch.tv/commands".into())
-                .unwrap_or_else(|e| eprintln!("Error sending message: {:?}", e));
+
+        if let Err(e) = split_sink.send(format!("NICK {}", self.username).into()).await {
+            eprintln!("Error sending message: {:?}", e);
+            self.set_state(WebSocketState::Disconnected).await;
+        }
+
+        if let Err(e) = split_sink.send("CAP REQ :twitch.tv/tags twitch.tv/commands".into()).await {
+            eprintln!("Error sending message: {:?}", e);
+            self.set_state(WebSocketState::Disconnected).await;
+        }
+
+
+        // Spawn the send task with the twitch_receiver before any other operations that might move it
+        tokio::spawn(Self::handle_twitch_send(self.clone(), twitch_receiver));
+
+        // Store the split_sink and twitch_transmitter into their respective locks
+        {
+            let mut sink_lock = self.twitch_stream.lock().await;
+            *sink_lock = Some(split_sink);
+        }
+        {
+            let mut transmitter_lock = self.twitch_channel_transmitter.lock().await;
+            *transmitter_lock = Some(twitch_transmitter);
+        }
+
+        // Start the leaky bucket handler
+        self.clone().start_leaky_bucket_handler();
+    }
+
+    async fn handle_twitch_send(self: Arc<Self>, mut receiver: UnboundedReceiver<WebSocketMessage>) {
+        while let Some(message) = receiver.recv().await {
+            let mut sink = self.twitch_stream.lock().await;
+            if let Some(sink) = sink.as_mut() {
+                if let Err(e) = sink.send(message).await {
+                    eprintln!("Error sending message: {:?}", e);
+                    self.set_state(WebSocketState::Disconnected).await;
+                }
+            }
+        }
+    }
+
+    async fn handle_twitch_receive(self: Arc<Self>, mut split_stream: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>) {
+        while let Some(message_result) = split_stream.next().await {
+            match message_result {
+                Ok(message) => {
+                    // println!("RAW Message {:?}",message);
+                    if let Message::Text(text) = message {
+                        if text.starts_with("PING") {
+                            self.send_command(&text.replace("PING", "PONG")).await;
+                        } else if text.contains("PRIVMSG #") {
+                            if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+                            {
+                                if let Some(sender) = &self.message_tx {
+                                    if let Err(e) = sender.send(parsed_message) {
+                                        eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
+                                    }
+                                }
+                            }
+                        } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
+                            self.set_state(WebSocketState::Connected).await;
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error receiving message: {:?}", e);
+                    self.set_state(WebSocketState::Disconnected).await;
+                }
+            }
         }
     }
 
@@ -249,7 +269,6 @@ impl WebSocket {
 
             let mut message_bucket = self.message_bucket.write().await;
             if message_bucket.len() < BUCKET_CAPACITY {
-                // println!("PRIVMSG Message: {}", twitch_message);
                 message_bucket.push_back(twitch_message.clone());
                 self.message_bucket_notifier.notify_one();
             } else {
@@ -302,7 +321,8 @@ impl WebSocket {
                                     &*self_clone.twitch_channel_transmitter.lock().await
                                 {
                                     transmitter.send(message.into()).unwrap_or_else(|e| {
-                                        eprintln!("Error sending message: {:?}", e)
+                                        eprintln!("Error sending message: {:?}", e);
+                                        let _ = self.set_state(WebSocketState::Disconnected);
                                     });
                                 }
                                 tokio::time::sleep(LEAK_RATE).await;
@@ -362,20 +382,17 @@ impl WebSocket {
     }
 
     pub async fn join_pending_channels(self: Arc<Self>) {
-        // println!("WebSocketState: {:?}", self.get_state());
 
         if self.get_state() == WebSocketState::Connected {
             self.process_channel_joining().await;
         } else {
             // println!("WebSocket is not connected. Waiting to join channels....");
-            //TODO!  Reflect on this later and see if it's still necessary for this to happen.
             tokio::spawn({
                 let ws_clone = Arc::clone(&self);
                 async move {
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                         if ws_clone.get_state() == WebSocketState::Connected {
-                            //println!("WebSocket is now connected. Attempting to join channels.");
                             ws_clone.process_channel_joining().await;
                             break;
                         }
@@ -405,60 +422,60 @@ impl WebSocket {
         }
     }
 
-    pub async fn listen_for_messages(
-        self: Arc<Self>,
-        read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
-    ) {
-        pin_mut!(read);
-        let self_clone = Arc::clone(&self);
-        while let Some(message) = read.next().await {
-            // println!("*Message RAW: {:?}", message);
-            match message {
-                Ok(Message::Text(ref text)) => {
-                    if message.is_ok() {
-                        if text.starts_with("PING") {
-                            //println!("DEBUG Received PING, sending: PONG");
-                            self_clone.send_command(&text.replace("PING", "PONG")).await;
-                        } else if text.contains("PRIVMSG #") {
-                            if let Some(parsed_message) = common::message_data::MessageData::new(&text)
-                            {
-                                if let Some(sender) = &self_clone.message_tx {
-                                    if let Err(e) = sender.send(parsed_message) {
-                                        eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
-                                    }
-                                }
-                            }
-                        } else if text.contains("WHISPER") {
-                            if let Some(parsed_message) = common::message_data::MessageData::new(&text)
-                            {
-                                if let Some(sender) = &self_clone.message_tx {
-                                    if let Err(e) = sender.send(parsed_message) {
-                                        eprintln!("WHISPER: Failed to send message to channel: {}", e);
-                                    }
-                                }
-                            }
-                        } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
-                            // println!("{} {:?}", ":Welcome, GLHF! ", self.username);
-                            self_clone.set_state(WebSocketState::Connected).await;
-                        }
-                    }
-                    else {
-                        eprintln!("Message ERROR: {:?}", message);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error receiving message: {:?}", e);
-                    if let tokio_tungstenite::tungstenite::Error::Io(io_error) = &e {
-                        if io_error.kind() == std::io::ErrorKind::ConnectionReset {
-                            eprintln!("Connection was reset by the remote host.");
-                            self_clone.clone().set_state(WebSocketState::Disconnected).await;
-                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                            // self_clone.clone().connect().await;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
+    // pub async fn listen_for_messages(
+    //     self: Arc<Self>,
+    //     read: impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
+    // ) {
+    //     pin_mut!(read);
+    //     let self_clone = Arc::clone(&self);
+    //     while let Some(message) = read.next().await {
+    //         // println!("*Message RAW: {:?}", message);
+    //         match message {
+    //             Ok(Message::Text(ref text)) => {
+    //                 if message.is_ok() {
+    //                     if text.starts_with("PING") {
+    //                         //println!("DEBUG Received PING, sending: PONG");
+    //                         self_clone.send_command(&text.replace("PING", "PONG")).await;
+    //                     } else if text.contains("PRIVMSG #") {
+    //                         if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+    //                         {
+    //                             if let Some(sender) = &self_clone.message_tx {
+    //                                 if let Err(e) = sender.send(parsed_message) {
+    //                                     eprintln!("PRIVMSG: Failed to send message to channel: {}", e);
+    //                                 }
+    //                             }
+    //                         }
+    //                     } else if text.contains("WHISPER") {
+    //                         if let Some(parsed_message) = common::message_data::MessageData::new(&text)
+    //                         {
+    //                             if let Some(sender) = &self_clone.message_tx {
+    //                                 if let Err(e) = sender.send(parsed_message) {
+    //                                     eprintln!("WHISPER: Failed to send message to channel: {}", e);
+    //                                 }
+    //                             }
+    //                         }
+    //                     } else if !text.contains("PRIVMSG") & text.contains(":Welcome, GLHF!") {
+    //                         // println!("{} {:?}", ":Welcome, GLHF! ", self.username);
+    //                         self_clone.set_state(WebSocketState::Connected).await;
+    //                     }
+    //                 }
+    //                 else {
+    //                     eprintln!("Message ERROR: {:?}", message);
+    //                 }
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("Error receiving message: {:?}", e);
+    //                 if let tokio_tungstenite::tungstenite::Error::Io(io_error) = &e {
+    //                     if io_error.kind() == std::io::ErrorKind::ConnectionReset {
+    //                         eprintln!("Connection was reset by the remote host.");
+    //                         self_clone.clone().set_state(WebSocketState::Disconnected).await;
+    //                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    //                         // self_clone.clone().connect().await;
+    //                     }
+    //                 }
+    //             }
+    //             _ => {}
+    //         }
+    //     }
+    // }
 }
