@@ -1,27 +1,30 @@
-use bible::scripture::bible::Bible;
-use commands::*;
-use helpers::print_color::PrintCommand;
-use helpers::response_builder::ResponseBuilder;
-use helpers::statics::*;
-use helpers::Metrics;
-use tokio::sync::mpsc;
-
-use futures::future::pending;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use log::info;
+use env_logger;
+use futures::future::pending;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use twitch::chat::{client::WebSocketState, Listener, Replier};
-use twitch::common::message_data::{MessageData, Type};
+
+use bible::scripture::bible::Bible;
+use commands::*;
 use helpers::config::Config;
+use helpers::Metrics;
+use helpers::print_color::PrintCommand;
+use helpers::response_builder::ResponseBuilder;
+use helpers::statics::*;
 use helpers::statics::{avaialble_bibles, find_bible};
-use helpers::statics::{BIBLES, CHANNELS_TO_JOIN};
+use helpers::statics::BIBLES;
+use twitch::chat::{Listener, Listeners, Replier};
+use twitch::common::message_data::{MessageData, Type};
 
 mod commands;
 mod helpers;
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     initialize_statics();
     PrintCommand::System.print_message("ChapterVerse", "Jesus is Lord!");
     PrintCommand::Issue.print_message("Version", env!("CARGO_PKG_VERSION"));
@@ -53,24 +56,33 @@ async fn main() {
         &TWITCH_OAUTH,
     ));
 
-    let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
+    // let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
+
     let replier_transmitter_clone =
         Arc::new(Listener::new(replier_transmitter.clone(), None, None));
-    let listeners_clone = Arc::clone(&listeners);
+    // let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
 
     // **Spawn a task to Listens for incoming Twitch messages.
     tokio::spawn(handle_twitch_messages(listener_reciever, replier_transmitter_clone, listeners_clone, listener_transmitter_clone));
 
-    let listeners_clone = Arc::clone(&listeners);
+    // let listeners_clone = Arc::clone(&listeners);
     let listener_transmitter_clone = listener_transmitter.clone();
     // Spawn a task to manage listeners connections and reconnection
-    tokio::spawn(manage_listeners(listeners_clone, listener_transmitter_clone));
+    // tokio::spawn(manage_listeners(listeners_clone, listener_transmitter_clone));
 
     let _ = Arc::clone(&replier).join_channel(&TWITCH_ACCOUNT).await;
 
     // Spawn a task for replying to messages.
     tokio::spawn(manage_repliers(Arc::clone(&replier), replier_receiver));
+
+    // let (tx, _rx) = mpsc::unbounded_channel::<MessageData>(); // Create the channel
+    let manager = Listeners::new(listener_transmitter_clone);  // Create the ListenerManager
+
+    for channel in CHANNELS_TO_JOIN.iter() {
+        manager.add_channel(channel).await;
+        Metrics::add_channel(&METRICS, channel).await;
+    }
 
     // This line will keep the program running indefinitely until it's killed manually (e.g., Ctrl+C).
     pending::<()>().await;
@@ -80,7 +92,7 @@ async fn manage_repliers(replier: Arc<Replier>, mut replier_receiver: mpsc::Unbo
     // Try to connect and send initial messages
     match replier.clone().connect().await {
         Ok(_) => {
-            println!("Successfully connected for Replying.");
+            info!("Successfully connected for Replying.");
             let _ = replier
                 .clone()
                 .send_message(&TWITCH_ACCOUNT, "Jesus is Lord!")
@@ -113,64 +125,64 @@ async fn manage_repliers(replier: Arc<Replier>, mut replier_receiver: mpsc::Unbo
     }
 }
 
-async fn manage_listeners(listeners_clone: Arc<Mutex<HashMap<String, Arc<Listener>>>>, listener_transmitter_clone: mpsc::UnboundedSender<MessageData>) {
-    loop {
-        let new_twitch_listener = Arc::new(Listener::new(
-            listener_transmitter_clone.clone(),
-            None,
-            None,
-        ));
-        match new_twitch_listener.clone().connect().await {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Failed to connect(new_twitch_listener.clone().connect().await): {:?}", e);
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                continue;
-            }
-        }
-        for chunk in CHANNELS_TO_JOIN.chunks(*CHANNELS_PER_LISTENER) {
-            let chunk_twitch_listener = Arc::new(Listener::new(
-                listener_transmitter_clone.clone(),
-                None,
-                None,
-            ));
-            let listeners_lock = listeners_clone.lock();
-            listeners_lock.await.insert(
-                chunk_twitch_listener.username.to_string(),
-                chunk_twitch_listener.clone(),
-            );
-            match chunk_twitch_listener.clone().connect().await {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!("Failed to connect (chunk_twitch_listener.clone().connect().await): {:?}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            }
-            tokio::spawn({
-                let chunk_twitch_listener = chunk_twitch_listener.clone();
-                async move {
-                    for channel in chunk {
-                        let twitch_listener_clone = Arc::clone(&chunk_twitch_listener);
-                        match twitch_listener_clone.join_channel(channel).await {
-                            Ok(_) => {
-                                Metrics::add_channel(&METRICS, channel).await;
-                            }
-                            Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
-                        }
-                    }
-                }
-            });
-        }
-        while new_twitch_listener.clone().get_state() != WebSocketState::Disconnected {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
-    }
-}
+// async fn manage_listeners(listeners_clone: Arc<Mutex<HashMap<String, Arc<Listener>>>>, listener_transmitter_clone: mpsc::UnboundedSender<MessageData>) {
+//     loop {
+//         let new_twitch_listener = Arc::new(Listener::new(
+//             listener_transmitter_clone.clone(),
+//             None,
+//             None,
+//         ));
+//         match new_twitch_listener.clone().connect().await {
+//             Ok(_) => (),
+//             Err(e) => {
+//                 eprintln!("Failed to connect(new_twitch_listener.clone().connect().await): {:?}", e);
+//                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+//                 continue;
+//             }
+//         }
+//         for chunk in CHANNELS_TO_JOIN.chunks(*CHANNELS_PER_LISTENER) {
+//             let chunk_twitch_listener = Arc::new(Listener::new(
+//                 listener_transmitter_clone.clone(),
+//                 None,
+//                 None,
+//             ));
+//             let listeners_lock = listeners_clone.lock();
+//             listeners_lock.await.insert(
+//                 chunk_twitch_listener.username.to_string(),
+//                 chunk_twitch_listener.clone(),
+//             );
+//             match chunk_twitch_listener.clone().connect().await {
+//                 Ok(_) => (),
+//                 Err(e) => {
+//                     eprintln!("Failed to connect (chunk_twitch_listener.clone().connect().await): {:?}", e);
+//                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+//                     continue;
+//                 }
+//             }
+//             tokio::spawn({
+//                 let chunk_twitch_listener = chunk_twitch_listener.clone();
+//                 async move {
+//                     for channel in chunk {
+//                         let twitch_listener_clone = Arc::clone(&chunk_twitch_listener);
+//                         match twitch_listener_clone.join_channel(channel).await {
+//                             Ok(_) => {
+//                                 Metrics::add_channel(&METRICS, channel).await;
+//                             }
+//                             Err(e) => eprintln!("Failed to join channel {}: {}", channel, e),
+//                         }
+//                     }
+//                 }
+//             });
+//         }
+//         while new_twitch_listener.clone().get_state() != WebSocketState::Disconnected {
+//             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+//         }
+//     }
+// }
 
 async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<MessageData>, replier_transmitter_clone: Arc<Listener>, listeners_clone: Arc<Mutex<HashMap<String, Arc<Listener>>>>, listener_transmitter_clone: mpsc::UnboundedSender<MessageData>) {
     while let Some(mut message) = listener_reciever.recv().await {
-                eprintln!("Raw Message {:?}", message);
+                // println!("Raw Message: {:?}", message);
 
                 if !message.tags.contains(&Type::Ignore) {
                     let channel = &message.channel;
@@ -560,6 +572,7 @@ async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<M
 #[cfg(test)]
 mod unittests {
     use super::*;
+
     // use the following command line to see the results of the test: cargo test -- --nocapture
     #[test]
     fn get_scripture() {

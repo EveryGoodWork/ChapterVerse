@@ -208,6 +208,7 @@ impl WebSocket {
             *transmitter_lock = Some(twitch_transmitter);
         }
 
+        self.clone().join_pending_channels().await;
         // Start the leaky bucket handler
         self.clone().start_leaky_bucket_handler();
     }
@@ -391,7 +392,7 @@ impl WebSocket {
                 let ws_clone = Arc::clone(&self);
                 async move {
                     loop {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                         if ws_clone.get_state() == WebSocketState::Connected {
                             ws_clone.process_channel_joining().await;
                             break;
