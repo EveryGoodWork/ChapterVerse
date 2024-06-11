@@ -1,12 +1,9 @@
-use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use log::info;
 use env_logger;
 use futures::future::pending;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
-
 use bible::scripture::bible::Bible;
 use commands::*;
 use helpers::config::Config;
@@ -48,28 +45,16 @@ async fn main() {
         PrintCommand::Info.print_message(&format!("{}, 2 Timothy 3:16", bible_name), &scripture);
     }
 
-    let (listener_transmitter, listener_reciever) = mpsc::unbounded_channel::<MessageData>();
+    let (listener_tx, listener_rx) = mpsc::unbounded_channel::<MessageData>();
     let (replier_transmitter, replier_receiver) = mpsc::unbounded_channel::<MessageData>();
     let replier = Arc::new(Replier::new(
-        listener_transmitter.clone(),
+        listener_tx.clone(),
         &TWITCH_ACCOUNT,
         &TWITCH_OAUTH,
     ));
 
-    // let listeners = Arc::new(Mutex::new(HashMap::<String, Arc<Listener>>::new()));
-
     let replier_transmitter_clone =
         Arc::new(Listener::new(replier_transmitter.clone(), None, None));
-    // let listeners_clone = Arc::clone(&listeners);
-    let listener_transmitter_clone = listener_transmitter.clone();
-
-    // **Spawn a task to Listens for incoming Twitch messages.
-    tokio::spawn(handle_twitch_messages(listener_reciever, replier_transmitter_clone, listeners_clone, listener_transmitter_clone));
-
-    // let listeners_clone = Arc::clone(&listeners);
-    let listener_transmitter_clone = listener_transmitter.clone();
-    // Spawn a task to manage listeners connections and reconnection
-    // tokio::spawn(manage_listeners(listeners_clone, listener_transmitter_clone));
 
     let _ = Arc::clone(&replier).join_channel(&TWITCH_ACCOUNT).await;
 
@@ -77,12 +62,14 @@ async fn main() {
     tokio::spawn(manage_repliers(Arc::clone(&replier), replier_receiver));
 
     // let (tx, _rx) = mpsc::unbounded_channel::<MessageData>(); // Create the channel
-    let manager = Listeners::new(listener_transmitter_clone);  // Create the ListenerManager
+    let listeners = Listeners::new(listener_tx.clone());  // Create the ListenerManager
 
     for channel in CHANNELS_TO_JOIN.iter() {
-        manager.add_channel(channel).await;
+        listeners.add_channel(channel).await;
         Metrics::add_channel(&METRICS, channel).await;
     }
+    // **Spawn a task to Listens for incoming Twitch messages.
+    tokio::spawn(handle_twitch_messages(listener_rx, replier_transmitter_clone, listeners, listener_tx.clone()));
 
     // This line will keep the program running indefinitely until it's killed manually (e.g., Ctrl+C).
     pending::<()>().await;
@@ -180,7 +167,7 @@ async fn manage_repliers(replier: Arc<Replier>, mut replier_receiver: mpsc::Unbo
 //     }
 // }
 
-async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<MessageData>, replier_transmitter_clone: Arc<Listener>, listeners_clone: Arc<Mutex<HashMap<String, Arc<Listener>>>>, listener_transmitter_clone: mpsc::UnboundedSender<MessageData>) {
+async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<MessageData>, replier_transmitter_clone: Arc<Listener>, listeners: Arc<Listeners>, listener_transmitter_clone: mpsc::UnboundedSender<MessageData>) {
     while let Some(mut message) = listener_reciever.recv().await {
                 // println!("Raw Message: {:?}", message);
 
@@ -256,10 +243,7 @@ async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<M
                                                     continue;
                                                 }
                                             }
-                                            let listeners_lock = listeners_clone.lock();
-                                            listeners_lock
-                                                .await
-                                                .insert(display_name.to_string(), new_twitch_listener);
+                                            listeners.add_channel(display_name).await;
                                             Some(
                                                 format!(
                                                     "Praise God, we have a new user of ChapterVerse, {}! ChapterVerse has joined your channel, type !help for list of available commands. Isaiah 55:1 - So shall My word be that goes forth from My mouth; It shall not return to Me void But it shall accomplish what I please And it shall prosper in the thing for which I sent it.",
@@ -340,16 +324,8 @@ async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<M
                                         config.leave_channel();
                                         Metrics::add_user(&METRICS, &display_name).await;
                                         Metrics::remove_channel(&METRICS, &display_name).await;
-                                        let listeners_lock = listeners_clone.lock();
-                                        for (_key, listener) in listeners_lock.await.iter() {
-                                            match listener.leave_channel(&display_name).await {
-                                                Ok(_) => (),
-                                                Err(e) => eprintln!(
-                                                    "Error leaving channel {}: {}",
-                                                    display_name, e
-                                                ),
-                                            }
-                                        }
+                                        //TODO!  Create a leave Channel option.
+                                        //listeners.leave_channel(display_name).await;
                                         Some(
                                             format!(
                                                 "ChapterVerse has left the {} channel.",
