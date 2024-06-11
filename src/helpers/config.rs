@@ -2,6 +2,8 @@ use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;
 use std::path::Path;
+use log::info;
+
 extern crate sanitize_filename;
 
 const CONFIGS_PATH: &str = "./channels";
@@ -335,7 +337,7 @@ impl Config {
                             Ok(content) => match toml::from_str::<Config>(&content) {
                                 Ok(config) => {
                                     if config.channel.as_ref()?.active.unwrap_or(false) {
-                                        println!(
+                                        info!(
                                             "Channel is active: {}",
                                             config.account.as_ref()?.username.as_ref()?.to_string()
                                         );
@@ -359,7 +361,7 @@ impl Config {
                             }
                         }
                     } else {
-                        eprintln!("Skipped non-TOML file or directory: {:?}", path);
+                        // eprintln!("Skipped non-TOML file or directory: {:?}", path);
                         None
                     }
                 })
