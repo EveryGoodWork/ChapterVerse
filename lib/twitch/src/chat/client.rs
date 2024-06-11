@@ -19,6 +19,7 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 const BUCKET_CAPACITY: usize = 100;
 const LEAK_RATE: Duration = Duration::from_millis(1500);
+const TWITCH_URL: &'static str = "ws://irc-ws.chat.twitch.tv:80";
 
 struct JoinRateLimiter {
     join_attempts: Mutex<Vec<Instant>>,
@@ -154,8 +155,7 @@ impl WebSocket {
                     eprintln!("Previous attempt failed, trying again...");
                 }
             }
-            let url = "ws://irc-ws.chat.twitch.tv:80";
-            match connect_async(url).await {
+            match connect_async(TWITCH_URL).await {
                 Ok((ws_stream, _)) => {
                     self.handle_connection_success(ws_stream).await;
                     // println!("---WebSocket Connected and ready.");
