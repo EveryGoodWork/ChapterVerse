@@ -390,7 +390,7 @@ async fn handle_twitch_messages(mut listener_reciever: mpsc::UnboundedReceiver<M
                                                 adjusted_character_limit,
                                                 &bible_name_to_use,
                                             );
-                                            config.set_last_verse(&verses.last().unwrap().reference);
+                                            config.set_last_verse(&response_output.last_verse);
                                             config.add_account_metrics_scriptures();
 
                                             if !channel.eq_ignore_ascii_case(display_name) {
