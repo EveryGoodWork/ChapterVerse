@@ -3,6 +3,7 @@ use bible::scripture::bible::Verse;
 pub struct ResponseOutput {
     pub truncated: String,
     pub remainder: String,
+    pub last_verse: String,
 }
 
 pub struct ResponseBuilder;
@@ -13,13 +14,6 @@ impl ResponseBuilder {
         total_length: usize,
         bible_name_to_use: &str,
     ) -> ResponseOutput {
-        if verses.is_empty() {
-            return ResponseOutput {
-                truncated: String::new(),
-                remainder: String::new(),
-            };
-        }
-
         let last_verse = verses.last().unwrap();
         let start_verse = verses.first().unwrap().verse;
         let end_verse = last_verse.verse;
@@ -56,7 +50,20 @@ impl ResponseBuilder {
         let scripture_full = format!("{} - {}", scriptures, scripture_reference);
 
         if scripture_full.len() > total_length {
-            let adjusted_length = total_length - scripture_reference_abbreviation.len() - 7; // Adjusting length for " ... - "
+            // -18 is for having " !next to continue" included in the message if the verse gets cut
+            // off
+            let adjusted_length = total_length - scripture_reference_abbreviation.len() - 18;
+            let mut scripture = String::new();
+            let mut last_verse = verses.last().unwrap();
+            for verse in verses {
+                if format!("{} {}", scripture, verse.scripture).len() < adjusted_length {
+                    scripture += " ";
+                    scripture += &verse.scripture;
+                    last_verse = verse;
+                } else {
+                    break;
+                }
+            }
             let break_point = scriptures
                 .char_indices()
                 .take_while(|&(idx, _)| idx <= adjusted_length)
@@ -64,20 +71,32 @@ impl ResponseBuilder {
                 .map(|(idx, _)| idx)
                 .last()
                 .unwrap_or(adjusted_length);
+            // reused code here to make shortened scripture_reference_abbreviation accurate
+            let scripture_reference_abbreviation = if start_verse == end_verse {
+                format!("{}:{} {}", abbreviation, start_verse, bible_name_to_use)
+            } else {
+                format!(
+                    "{}:{}-{} {}",
+                    abbreviation, start_verse, last_verse.verse, bible_name_to_use
+                )
+            };
 
             ResponseOutput {
                 truncated: format!(
-                    "{}... - {}",
-                    scriptures[..break_point].trim_end(),
+                    "{} - {} !next to continue",
+                    scripture,
                     scripture_reference_abbreviation
                 ),
                 remainder: scriptures[break_point..].trim_start().to_string(),
+                last_verse: last_verse.reference.clone(),
             }
         } else {
             ResponseOutput {
                 truncated: scripture_full,
                 remainder: String::new(),
+                last_verse: verses.last().unwrap().reference.clone(),
             }
         }
     }
 }
+
