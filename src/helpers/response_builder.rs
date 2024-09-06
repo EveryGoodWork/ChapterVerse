@@ -52,7 +52,7 @@ impl ResponseBuilder {
         if scripture_full.len() > total_length {
             // -18 is for having " !next to continue" included in the message if the verse gets cut
             // off
-            let adjusted_length = total_length - scripture_reference_abbreviation.len() - 18;
+            let adjusted_length = total_length - scripture_reference_abbreviation.len();
             let mut scripture = String::new();
             let mut last_verse = verses.last().unwrap();
             for verse in verses {
@@ -83,7 +83,7 @@ impl ResponseBuilder {
 
             ResponseOutput {
                 truncated: format!(
-                    "{} - {} !next to continue",
+                    "{} - {}",
                     scripture,
                     scripture_reference_abbreviation
                 ),
