@@ -6,8 +6,8 @@ edition = "2021"
 # Dependencies specific to the twitch library can be added here
 [dependencies]
 futures-util = "0.3.30"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.40.0", features = ["full"] }
 tokio-tungstenite = "0.21.0"
 rand = "0.8.5"
-async-trait = "0.1.80"
-log = "0.4.21"
+async-trait = "0.1.82"
+log = "0.4.22"

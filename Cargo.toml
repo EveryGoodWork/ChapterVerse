@@ -1,6 +1,6 @@
 [package]
 name = "chapterverse"
-version = "2024.6.12"
+version = "2024.9.18"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,34 +15,34 @@ members = [
 [dependencies]
 bible = { path = "lib/bible" }
 twitch = { path = "lib/twitch" }
-crossterm = "^0.27.0"
+crossterm = "0.28.1"
 
 dotenv = "^0.15.0"
-reqwest = { version = "0.12.4", features = ["json"] }
-strum = "^0.26.2"
+reqwest = { version = "0.12.7", features = ["json"] }
+strum = "^0.26.3"
 strum_macros = "^0.26.4"
-tokio = "^1.38.0"
-lazy_static = "1.4.0"
-regex = "1.10.5"
-async-trait = "0.1.80"
-thiserror = "1.0.61"
+tokio = "^1.40.0"
+lazy_static = "1.5.0"
+regex = "1.10.6"
+async-trait = "0.1.82"
+thiserror = "1.0.63"
 
 futures = "0.3"
-toml = "0.8.14"
-serde = {version = "1.0.203", features =["derive"]}
+toml = "0.8.19"
+serde = {version = "1.0.210", features =["derive"]}
 chrono = { version = "0.4.38", features = ["serde"] }
 sanitize-filename = "0.5.0"
-serde_derive = "1.0.203"
-serde_json = "1.0.117"
-dashmap = "5.5.3"
-log = "0.4.21"
-env_logger = "0.11.3"
+serde_derive = "1.0.210"
+serde_json = "1.0.128"
+dashmap = "6.1.0"
+log = "0.4.22"
+env_logger = "0.11.5"
 
 [dev-dependencies]
 criterion = {version = "0.5.1", features = ["html_reports"]}
 
 [build-dependencies]
-toml_edit = "0.22.14"
+toml_edit = "0.22.21"
 chrono = "0.4.38"
 
 [[bench]]
